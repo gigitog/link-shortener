@@ -1,0 +1,28 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Виртуальное окружение (uv) ---
+.venv/
+
+# --- Секреты и локальная конфигурация ---
+# .env НЕ коммитим никогда. В git лежит только .env.example (шаблон без секретов).
+.env
+*.env
+!.env.example
+
+# --- IDE / редакторы ---
+.idea/
+.vscode/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Docker (локальные данные БД, если монтируем в папку проекта) ---
+pgdata/

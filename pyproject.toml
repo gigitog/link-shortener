@@ -1,0 +1,26 @@
+[project]
+name = "link-shortener"
+version = "0.1.0"
+description = "Сокращатель ссылок — пет-проект для изучения FastAPI, Docker и Kubernetes"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+# Зависимости для разработки (линтер/форматтер). Ставятся через `uv sync`,
+# но НЕ попадают в продакшн-образ Docker.
+[dependency-groups]
+dev = [
+    "ruff>=0.9",
+]
+
+# --- Конфиг Ruff: и линтер, и форматтер в одном инструменте ---
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# E,F  — базовые ошибки (pyflakes/pycodestyle)
+# I    — сортировка импортов (замена isort)
+# UP   — подсказки по современному синтаксису Python
+# B    — частые баги (flake8-bugbear)
+select = ["E", "F", "I", "UP", "B"]
