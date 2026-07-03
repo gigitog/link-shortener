@@ -1,0 +1,89 @@
+"""Бизнес-логика работы со ссылками."""
+
+import secrets
+import string
+from urllib.parse import urlparse
+
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.models.link import Link
+
+# Алфавит для генерации случайных кодов (base62: a-z + A-Z + 0-9 = 62 символа).
+# 7 символов из 62 → 62^7 ≈ 3.5 триллиона комбинаций — коллизии крайне редки.
+ALPHABET = string.ascii_letters + string.digits
+
+
+def _generate_short_code() -> str:
+    """Генерирует случайную строку из ALPHABET заданной длины."""
+    return "".join(secrets.choice(ALPHABET) for _ in range(settings.short_code_length))
+
+
+def _extract_domain() -> str:
+    """Извлекает домен (host) из BASE_URL. Напр. 'http://localhost:8000' → 'localhost:8000'."""
+    return urlparse(settings.base_url).netloc
+
+
+async def create_link(db: AsyncSession, original_url: str, custom_alias: str | None = None) -> Link:
+    """
+    Создаёт короткую ссылку.
+
+    Если custom_alias передан — использует его как short_code.
+    Если нет — генерирует случайный и при коллизии пробует снова (до 5 попыток).
+
+    Возвращает созданный объект Link.
+    Бросает ValueError, если custom_alias уже занят.
+    """
+    domain = _extract_domain()
+
+    if custom_alias:
+        link = Link(domain=domain, short_code=custom_alias, original_url=str(original_url))
+        db.add(link)
+        try:
+            await db.commit()
+            await db.refresh(link)
+            return link
+        except IntegrityError:
+            await db.rollback()
+            raise ValueError(f"alias '{custom_alias}' уже занят") from None
+
+    # Генерация случайного кода с retry на (маловероятную) коллизию
+    max_attempts = 5
+    for _ in range(max_attempts):
+        code = _generate_short_code()
+        link = Link(domain=domain, short_code=code, original_url=str(original_url))
+        db.add(link)
+        try:
+            await db.commit()
+            await db.refresh(link)
+            return link
+        except IntegrityError:
+            await db.rollback()
+
+    raise RuntimeError("не удалось сгенерировать уникальный код после нескольких попыток")
+
+
+async def get_link_by_code(db: AsyncSession, short_code: str) -> Link | None:
+    """Находит ссылку по short_code (для текущего домена)."""
+    domain = _extract_domain()
+    result = await db.execute(
+        select(Link).where(Link.domain == domain, Link.short_code == short_code)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_all_links(db: AsyncSession) -> list[Link]:
+    """Возвращает все ссылки для текущего домена."""
+    domain = _extract_domain()
+    result = await db.execute(select(Link).where(Link.domain == domain))
+    return result.scalars().all()
+
+
+async def increment_clicks(db: AsyncSession, link_id: int) -> None:
+    """Атомарно увеличивает счётчик кликов на 1."""
+    await db.execute(
+        update(Link).where(Link.id == link_id).values(clicks_count=Link.clicks_count + 1)
+    )
+    await db.commit()

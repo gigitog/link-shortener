@@ -50,5 +50,7 @@ uv run uvicorn app.main:app --reload # запуск dev-сервера (появ
 4. **Docker** — Dockerfile + docker-compose (app + Postgres).
 5. **Деплой на Hetzner** — самый дешёвый VPS, запуск через docker-compose.
 6. **Kubernetes** — перенос в k3s: манифесты, Ingress, Secrets, масштабирование.
+   Сюда же — мультидоменность (несколько host в Ingress + автоматический TLS per-domain
+   через cert-manager). Схема БД под это уже готова (колонка `domain` в `links`).
 
 Важные решения по ходу проекта фиксируем в `DECISIONS.md`.

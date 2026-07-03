@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "Сокращатель ссылок — пет-проект для изучения FastAPI, Docker и Kubernetes"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "asyncpg>=0.31.0",
+    "fastapi>=0.139.0",
+    "pydantic-settings>=2.14.2",
+    "sqlalchemy[asyncio]>=2.0.51",
+    "uvicorn[standard]>=0.49.0",
+]
 
 # Зависимости для разработки (линтер/форматтер). Ставятся через `uv sync`,
 # но НЕ попадают в продакшн-образ Docker.
@@ -24,3 +30,6 @@ target-version = "py313"
 # UP   — подсказки по современному синтаксису Python
 # B    — частые баги (flake8-bugbear)
 select = ["E", "F", "I", "UP", "B"]
+# B008 — Depends() в аргументах функции. В FastAPI это стандартный паттерн (dependency injection),
+# ruff этого не знает и ругается.
+ignore = ["B008"]
