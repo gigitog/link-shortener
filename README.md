@@ -113,6 +113,25 @@ uv run uvicorn app.main:app --reload
 | `GET` | `/links/{code}` | — | Информация о ссылке |
 | `GET` | `/{code}` | — | Редирект → оригинальный URL |
 
+## Тесты
+
+```bash
+# Поднять тестовую БД (отдельный контейнер, порт 5433, данные в RAM)
+docker compose -f docker-compose.test.yml up -d
+
+# Запуск тестов
+uv run pytest -v
+
+# С покрытием
+uv run pytest --cov=app --cov-report=term-missing
+
+# Только unit / только integration
+uv run pytest tests/unit/ -v
+uv run pytest tests/integration/ -v
+```
+
+75 тестов, покрытие 92%. Изоляция через SAVEPOINT + rollback (реальный Postgres, без моков БД).
+
 ## Статус
 
 🚧 В разработке. Дорожная карта — в [CLAUDE.md](CLAUDE.md), ключевые решения — в [DECISIONS.md](DECISIONS.md).

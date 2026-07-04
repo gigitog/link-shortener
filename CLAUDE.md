@@ -26,17 +26,27 @@
 - **bcrypt** — хэширование паролей.
 - **PyJWT** — создание/проверка JWT-токенов.
 - **Ruff** — линтер и форматтер.
+- **pytest** + pytest-asyncio + httpx — тестирование (async, реальный Postgres).
+- **pytest-cov** — покрытие кода.
 
 ## Команды
 
 ```bash
 uv sync                              # установить зависимости
+uv sync --group test                 # + тестовые зависимости
 uv add <пакет>                       # добавить зависимость в проект
 uv run ruff check .                  # линтер
 uv run ruff format .                 # форматтер
 uv run uvicorn app.main:app --reload # запуск dev-сервера (http://localhost:8000/docs)
 uv run alembic upgrade head          # применить миграции БД
 uv run alembic revision --autogenerate -m "описание"  # создать новую миграцию
+
+# Тесты
+docker compose -f docker-compose.test.yml up -d  # поднять тестовую БД (порт 5433)
+uv run pytest -v                                 # запуск тестов
+uv run pytest --cov=app --cov-report=term-missing  # с покрытием
+uv run pytest tests/unit/ -v                     # только unit-тесты
+uv run pytest tests/integration/ -v              # только интеграционные
 ```
 
 Локальный Postgres для разработки (без docker-compose, появится на этапе 5):
@@ -85,8 +95,8 @@ app/
 1. **Фундамент** — git, конфиги, CLAUDE.md, DECISIONS.md. ✅
 2. **MVP API** — роуты создания/редиректа ссылок + Postgres, локально без Docker. ✅
 3. **Авторизация и middleware** — пользователи, JWT, Alembic, middleware (логирование, rate-limit). ✅
-4. **Тестирование** — pytest, тесты для API и сервисов. ← *сейчас здесь*
-5. **Docker** — Dockerfile + docker-compose (app + Postgres).
+4. **Тестирование** — pytest, тесты для API и сервисов. ✅
+5. **Docker** — Dockerfile + docker-compose (app + Postgres). ← *сейчас здесь*
 6. **Деплой на Hetzner** — самый дешёвый VPS, запуск через docker-compose.
 7. **Kubernetes** — перенос в k3s: манифесты, Ingress, Secrets, масштабирование.
    Сюда же — мультидоменность (несколько host в Ingress + автоматический TLS per-domain

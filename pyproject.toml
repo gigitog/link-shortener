@@ -23,6 +23,27 @@ dependencies = [
 dev = [
     "ruff>=0.9",
 ]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+    "httpx>=0.28",
+    "pytest-cov>=6.0",
+]
+
+# --- Конфиг pytest ---
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+filterwarnings = ["ignore::jwt.InsecureKeyLengthWarning"]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
 
 # --- Конфиг Ruff: и линтер, и форматтер в одном инструменте ---
 [tool.ruff]

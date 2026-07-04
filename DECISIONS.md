@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-07-04 — Этап 4: Тестирование
+
+- **Реальный PostgreSQL в тестах, не SQLite in-memory.**
+  SQLite отличается от Postgres по типам, ограничениям и поведению транзакций.
+  Отдельный контейнер на порту 5433 с `tmpfs` (данные в RAM → быстро и одноразово).
+
+- **Изоляция тестов через SAVEPOINT + rollback, а не пересоздание таблиц.**
+  Таблицы создаются один раз за сессию (`create_all`). Каждый тест работает внутри
+  транзакции (`conn.begin()`), а `session.commit()` в сервисах делает `RELEASE SAVEPOINT`,
+  не настоящий COMMIT. После теста — `trans.rollback()` → данные исчезают.
+  Это на порядок быстрее, чем `drop_all` + `create_all` для каждого теста.
+
+- **`asyncio_default_test_loop_scope = "session"` — один event loop на все тесты.**
+  Без этого session-scoped фикстура `engine` создаёт подключения в одном loop,
+  а function-scoped тесты работают в другом → `RuntimeError: Future attached to a different loop`.
+
+- **Сброс rate limiter между тестами.**
+  Middleware хранит состояние в памяти. Все тесты идут от одного IP (127.0.0.1),
+  поэтому без сброса после 30 запросов остальные получают 429.
+  Решение: в фикстуре `client` находим `RateLimitMiddleware` в стеке и чистим `requests`.
+
+- **pytest + pytest-asyncio + httpx — стек для async FastAPI-тестов.**
+  `httpx.AsyncClient` с `ASGITransport` — нативный async HTTP-клиент.
+  `TestClient` из Starlette — sync, не подходит для async зависимостей без хаков.
+
+- **75 тестов, 92% покрытия.**
+  Unit: schemas, services (auth/user/link), middleware.
+  Integration: все HTTP-эндпоинты (auth, links, redirect), dependency `get_current_user`.
+
+---
+
 ## 2026-07-04 — Этап 3: Авторизация и middleware
 
 - **Alembic для миграций вместо `create_all`.**
