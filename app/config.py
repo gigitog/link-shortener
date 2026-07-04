@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Параметры генерации коротких кодов
     short_code_length: int = 7
 
+    # JWT-настройки
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

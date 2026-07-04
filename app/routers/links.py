@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
+from app.dependencies import get_current_user
+from app.models.user import User
 from app.schemas.link import LinkCreate, LinkResponse
 from app.services import link as link_service
 
@@ -34,8 +36,12 @@ def _to_response(link) -> LinkResponse:
 
 
 @router.post("/links", response_model=LinkResponse, status_code=201)
-async def create_link(body: LinkCreate, db: AsyncSession = Depends(get_db)):
-    """Создать короткую ссылку."""
+async def create_link(
+    body: LinkCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Создать короткую ссылку (требует авторизации)."""
     if body.custom_alias and body.custom_alias.lower() in RESERVED_PATHS:
         raise HTTPException(
             status_code=400,
@@ -43,7 +49,12 @@ async def create_link(body: LinkCreate, db: AsyncSession = Depends(get_db)):
         )
 
     try:
-        link = await link_service.create_link(db, str(body.original_url), body.custom_alias)
+        link = await link_service.create_link(
+            db,
+            str(body.original_url),
+            body.custom_alias,
+            user_id=user.id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
 
@@ -51,9 +62,12 @@ async def create_link(body: LinkCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/links", response_model=list[LinkResponse])
-async def get_all_links(db: AsyncSession = Depends(get_db)):
-    """Получить все ссылки текущего домена."""
-    links = await link_service.get_all_links(db)
+async def get_all_links(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Получить все ссылки текущего пользователя."""
+    links = await link_service.get_all_links(db, user_id=user.id)
     return [_to_response(link) for link in links]
 
 

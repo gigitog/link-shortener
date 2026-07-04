@@ -1,11 +1,26 @@
 """SQLAlchemy-модель таблицы links."""
 
-from datetime import datetime
+from __future__ import annotations
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class Link(Base):
@@ -21,4 +36,14 @@ class Link(Base):
     original_url: Mapped[str] = mapped_column(Text)
     clicks_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, default=None)
+
+    # ForeignKey — ограничение на уровне БД: user_id может содержать
+    # только значения, которые реально есть в users.id (или NULL).
+    # Postgres не даст вставить несуществующий user_id.
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True, default=None
+    )
+
+    # relationship — обратная сторона связи User.links.
+    # Позволяет получить владельца ссылки через link.owner
+    owner: Mapped[User | None] = relationship(back_populates="links")

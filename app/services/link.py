@@ -26,12 +26,20 @@ def _extract_domain() -> str:
     return urlparse(settings.base_url).netloc
 
 
-async def create_link(db: AsyncSession, original_url: str, custom_alias: str | None = None) -> Link:
+async def create_link(
+    db: AsyncSession,
+    original_url: str,
+    custom_alias: str | None = None,
+    user_id: int | None = None,
+) -> Link:
     """
     Создаёт короткую ссылку.
 
     Если custom_alias передан — использует его как short_code.
     Если нет — генерирует случайный и при коллизии пробует снова (до 5 попыток).
+
+    user_id — ID владельца ссылки (из JWT-токена). Может быть None,
+    если в будущем понадобятся анонимные ссылки.
 
     Возвращает созданный объект Link.
     Бросает ValueError, если custom_alias уже занят.
@@ -39,7 +47,12 @@ async def create_link(db: AsyncSession, original_url: str, custom_alias: str | N
     domain = _extract_domain()
 
     if custom_alias:
-        link = Link(domain=domain, short_code=custom_alias, original_url=str(original_url))
+        link = Link(
+            domain=domain,
+            short_code=custom_alias,
+            original_url=str(original_url),
+            user_id=user_id,
+        )
         db.add(link)
         try:
             await db.commit()
@@ -53,7 +66,12 @@ async def create_link(db: AsyncSession, original_url: str, custom_alias: str | N
     max_attempts = 5
     for _ in range(max_attempts):
         code = _generate_short_code()
-        link = Link(domain=domain, short_code=code, original_url=str(original_url))
+        link = Link(
+            domain=domain,
+            short_code=code,
+            original_url=str(original_url),
+            user_id=user_id,
+        )
         db.add(link)
         try:
             await db.commit()
@@ -74,10 +92,10 @@ async def get_link_by_code(db: AsyncSession, short_code: str) -> Link | None:
     return result.scalar_one_or_none()
 
 
-async def get_all_links(db: AsyncSession) -> list[Link]:
-    """Возвращает все ссылки для текущего домена."""
+async def get_all_links(db: AsyncSession, user_id: int) -> list[Link]:
+    """Возвращает ссылки текущего пользователя для текущего домена."""
     domain = _extract_domain()
-    result = await db.execute(select(Link).where(Link.domain == domain))
+    result = await db.execute(select(Link).where(Link.domain == domain, Link.user_id == user_id))
     return result.scalars().all()
 
 
