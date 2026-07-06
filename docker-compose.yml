@@ -1,0 +1,62 @@
+# docker-compose.yml — поднимает весь стек: приложение (app) + база (db).
+# Запуск:  docker compose up --build
+#
+# Гибридный режим: этот же сервис db заменяет ручной `docker run ... postgres`
+# из CLAUDE.md. Порт 5434 наружу — чтобы локальный dev-запуск (uv run uvicorn)
+# подключался к той же базе, что и контейнер app.
+
+services:
+  # --- База данных ---
+  db:
+    image: postgres:17
+    # Учебная тема «секреты»: пароль БД — это секрет. Здесь берём его через
+    # подстановку переменных. docker compose автоматически читает файл .env
+    # (тот же, что и pydantic-settings) и подставляет ${...}. Синтаксис
+    # ${VAR:-default} — «взять VAR, а если не задана, использовать default».
+    # На проде дефолты убирают, чтобы при отсутствии секрета контейнер упал,
+    # а не поднялся с известным всем паролем.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-link_shortener}
+    ports:
+      # хост:контейнер. Наружу отдаём 5434, внутри Postgres всегда слушает 5432.
+      - "5434:5432"
+    volumes:
+      # Named volume — данные БД переживают `docker compose down` и пересоздание
+      # контейнера. В отличие от tmpfs у тестовой БД (та живёт в RAM и стирается).
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Проверяем, что Postgres реально готов принимать подключения.
+      # Просто «контейнер запущен» ≠ «база готова»: процесс стартует не мгновенно.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-link_shortener}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Приложение ---
+  app:
+    build: .          # собрать образ из Dockerfile в текущей папке
+    ports:
+      - "8000:8000"
+    environment:
+      # ВАЖНО: хост базы здесь — "db", имя сервиса выше. Внутри сети compose
+      # работает встроенный DNS: имя сервиса резолвится в IP его контейнера.
+      # Порт — 5432 (внутренний!), а не 5434 (это маппинг только для хоста).
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-link_shortener}
+      # SECRET_KEY — главный секрет (подпись JWT). Тянем из .env/окружения.
+      # Дефолт оставлен только чтобы стек поднялся «из коробки» на учебном проекте;
+      # в реальном проде дефолт убирают.
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-not-for-production}
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+    depends_on:
+      db:
+        # Не просто «запусти db раньше app», а «дождись, пока healthcheck db
+        # станет healthy». Иначе app стартует, дёрнет БД, получит отказ и упадёт.
+        condition: service_healthy
+    restart: unless-stopped
+
+# Определение named volume (Docker управляет его хранением сам)
+volumes:
+  pgdata:
