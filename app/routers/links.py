@@ -15,7 +15,7 @@ router = APIRouter()
 
 # Зарезервированные пути — нельзя создать alias с таким именем,
 # иначе он «перекроет» реальный роут API.
-RESERVED_PATHS = {"api", "docs", "redoc", "openapi.json", "health", "links"}
+RESERVED_PATHS = {"api", "auth", "docs", "redoc", "openapi.json", "health", "metrics", "links"}
 
 
 def _build_short_url(short_code: str) -> str:

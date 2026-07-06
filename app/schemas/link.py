@@ -24,8 +24,11 @@ class LinkCreate(BaseModel):
     def validate_custom_alias(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        if len(value) < 3 or len(value) > 30:
-            raise ValueError("alias должен быть от 3 до 30 символов")
+        # Верхняя граница = размер колонки short_code (VARCHAR(10)) — иначе
+        # валидация пропустит значение, которое БД не сможет сохранить (ошибка 500).
+        # Расширение до 30 отложено до этапа vanity-кодов (там будет миграция).
+        if len(value) < 3 or len(value) > 10:
+            raise ValueError("alias должен быть от 3 до 10 символов")
         if not ALIAS_PATTERN.match(value):
             raise ValueError("alias может содержать только буквы, цифры, дефис и подчёркивание")
         return value

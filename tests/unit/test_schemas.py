@@ -27,12 +27,19 @@ class TestLinkCreate:
         assert link.custom_alias is None
 
     def test_alias_too_short(self):
-        with pytest.raises(ValidationError, match="от 3 до 30"):
+        with pytest.raises(ValidationError, match="от 3 до 10"):
             LinkCreate(original_url="https://example.com", custom_alias="ab")
 
     def test_alias_too_long(self):
-        with pytest.raises(ValidationError, match="от 3 до 30"):
-            LinkCreate(original_url="https://example.com", custom_alias="a" * 31)
+        # Граница = размер колонки short_code VARCHAR(10): 11 символов должны
+        # отсекаться валидатором, а не падать ошибкой БД (регресс-тест на баг 500).
+        with pytest.raises(ValidationError, match="от 3 до 10"):
+            LinkCreate(original_url="https://example.com", custom_alias="a" * 11)
+
+    def test_alias_max_length_ok(self):
+        # Ровно 10 символов — максимум, который влезает в колонку.
+        link = LinkCreate(original_url="https://example.com", custom_alias="a" * 10)
+        assert link.custom_alias == "a" * 10
 
     def test_alias_invalid_chars(self):
         with pytest.raises(ValidationError, match="буквы, цифры, дефис"):
