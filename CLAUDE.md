@@ -49,12 +49,13 @@ uv run pytest tests/unit/ -v                     # только unit-тесты
 uv run pytest tests/integration/ -v              # только интеграционные
 ```
 
-Локальный Postgres для разработки (без docker-compose, появится на этапе 5):
+Docker (этап 5):
 
 ```bash
-docker run -d --name link-shortener-db \
-  -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=link_shortener \
-  -p 5434:5432 postgres:17
+docker compose up --build     # весь стек: app + Postgres (миграции при старте app)
+docker compose up -d db       # только БД (для гибридного dev-режима: app через uv)
+docker compose down           # остановить (volume pgdata с данными остаётся)
+docker compose logs -f app    # логи приложения
 ```
 
 ## Структура app/
@@ -96,8 +97,8 @@ app/
 2. **MVP API** — роуты создания/редиректа ссылок + Postgres, локально без Docker. ✅
 3. **Авторизация и middleware** — пользователи, JWT, Alembic, middleware (логирование, rate-limit). ✅
 4. **Тестирование** — pytest, тесты для API и сервисов. ✅
-5. **Docker** — Dockerfile + docker-compose (app + Postgres). ← *сейчас здесь*
-6. **Деплой на Hetzner** — самый дешёвый VPS, запуск через docker-compose.
+5. **Docker** — Dockerfile + docker-compose (app + Postgres). ✅
+6. **Деплой на Hetzner** — самый дешёвый VPS, запуск через docker-compose. ← *сейчас здесь*
 7. **Kubernetes** — перенос в k3s: манифесты, Ingress, Secrets, масштабирование.
    Сюда же — мультидоменность (несколько host в Ingress + автоматический TLS per-domain
    через cert-manager). Схема БД под это уже готова (колонка `domain` в `links`).
