@@ -15,4 +15,16 @@ echo "==> Запускаю Uvicorn..."
 # Зачем PID 1: именно первому процессу Docker шлёт сигналы (SIGTERM при
 # `docker stop`). Без exec сигнал пришёл бы в sh, а uvicorn его не увидел бы →
 # не было бы graceful shutdown, контейнер убивали бы через таймаут (SIGKILL).
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+#
+# --proxy-headers: за reverse proxy (Caddy) TCP-соединение приходит от прокси,
+# и scope["client"] — это IP прокси, а не клиента. Тогда rate-limiter считал бы
+# ВСЕХ пользователей одним «клиентом». С этим флагом uvicorn подставляет в
+# scope["client"] адрес из заголовка X-Forwarded-For, который ставит прокси.
+#
+# --forwarded-allow-ips: КОМУ верить на слово в этом заголовке. Заголовок может
+# прислать кто угодно («я — 8.8.8.8, честно»), поэтому uvicorn учитывает его
+# только от перечисленных адресов. Дефолт 127.0.0.1 = «никому извне» — локальный
+# dev-запуск ведёт себя как раньше. На проде compose задаёт "*": это безопасно,
+# т.к. порт 8000 наружу не публикуется и достучаться может только Caddy.
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 \
+    --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}"

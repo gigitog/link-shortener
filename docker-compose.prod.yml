@@ -1,0 +1,61 @@
+# docker-compose.prod.yml — prod-ОТЛИЧИЯ от базового docker-compose.yml.
+#
+# Это override-файл: запускается ВМЕСТЕ с базовым, а не вместо него:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Compose сливает файлы: второй дополняет/переопределяет первый.
+# Почему так, а не отдельный полный prod-файл: структура стека описана один раз
+# в базовом файле, здесь — только отличия. Меньше дублирования → меньше шансов,
+# что dev и prod разъедутся.
+#
+# Что меняем для прода:
+#   1. Секреты становятся ОБЯЗАТЕЛЬНЫМИ: синтаксис ${VAR:?сообщение} валит запуск,
+#      если переменная не задана. Дефолт «app/app» хорош локально, но на проде
+#      известный всем пароль = открытая дверь.
+#   2. Порты app (8000) и db (5434) наружу НЕ публикуем: единственная точка входа —
+#      Caddy (80/443). Приложение и БД доступны только внутри compose-сети.
+#   3. Добавляется сервис caddy — reverse proxy с автоматическим TLS.
+
+services:
+  db:
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?задай POSTGRES_USER в .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задай POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: ${POSTGRES_DB:?задай POSTGRES_DB в .env}
+    # !override — заменить список целиком, а не слить с базовым
+    # (по умолчанию compose СКЛЕИВАЕТ списки портов из двух файлов).
+    ports: !override []
+
+  app:
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?задай SECRET_KEY в .env (python3 -c "import secrets; print(secrets.token_hex(32))")}
+      BASE_URL: ${BASE_URL:?задай BASE_URL в .env (напр. https://s.faiuk.me)}
+      # Каким прокси доверять заголовок X-Forwarded-For (см. entrypoint.sh).
+      # "*" безопасно ИМЕННО потому, что порт 8000 наружу не опубликован:
+      # достучаться до app может только Caddy из внутренней сети.
+      FORWARDED_ALLOW_IPS: "*"
+    ports: !override []
+
+  # --- Reverse proxy: терминирует TLS, проксирует всё в app ---
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"     # HTTP: ACME-challenge для Let's Encrypt + редирект на https
+      - "443:443"   # HTTPS
+      - "443:443/udp"  # HTTP/3 (QUIC) — Caddy включает его сам
+    environment:
+      # Домен для Caddyfile ({$DOMAIN}) — единственное место, где он задаётся: .env
+      DOMAIN: ${DOMAIN:?задай DOMAIN в .env (напр. s.faiuk.me)}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # /data — сертификаты и ключи ACME. Терять нельзя: у Let's Encrypt
+      # лимит выдачи (5 сертификатов на домен в неделю) — при частых
+      # пересозданиях контейнера без volume можно упереться в rate-limit.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
