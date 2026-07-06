@@ -70,5 +70,7 @@ USER app
 
 EXPOSE 8000
 
-# .venv уже в PATH, поэтому зовём uvicorn напрямую, без `uv run`.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ENTRYPOINT — скрипт, который сперва применяет миграции, затем запускает сервер.
+# Вызываем через `sh`, чтобы не зависеть от бита исполняемости файла
+# (на Windows он не сохраняется в git).
+ENTRYPOINT ["sh", "docker/entrypoint.sh"]

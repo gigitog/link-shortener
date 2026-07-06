@@ -6,8 +6,8 @@ from sqlalchemy.orm import DeclarativeBase
 from app.config import settings
 
 # Engine — это «пул соединений» с Postgres.
-# echo=True — временно логирует SQL-запросы в консоль (удобно для отладки, уберём позже).
-engine = create_async_engine(settings.database_url, echo=True)
+# echo управляется настройкой db_echo (по умолчанию False; включить через DB_ECHO=true в .env).
+engine = create_async_engine(settings.database_url, echo=settings.db_echo)
 
 # Фабрика сессий. Каждый запрос к API получает свою сессию (свою «транзакцию»).
 async_session = async_sessionmaker(engine, expire_on_commit=False)

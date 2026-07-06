@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    # Логировать ли SQL-запросы в консоль. Удобно при локальной отладке,
+    # но в проде замусоривает логи и может «светить» данные — по умолчанию выключено.
+    db_echo: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
