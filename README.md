@@ -79,27 +79,35 @@ sequenceDiagram
     R-->>C: 307 → original_url
 ```
 
-## Запуск (локально)
+## Запуск
+
+### Вариант A — весь стек в Docker (проще всего)
 
 ```bash
-# 1. Зависимости
+cp .env.example .env              # заполнить значения (как минимум SECRET_KEY)
+docker compose up --build         # поднимет app + Postgres
+# → http://localhost:8000/docs
+```
+
+Контейнер `app` сам применяет миграции (`alembic upgrade head`) при старте.
+Данные БД лежат в named volume `pgdata` и переживают `docker compose down`.
+
+### Вариант B — гибридный dev-режим (hot-reload)
+
+БД поднимаем в Docker, приложение запускаем локально через uv — так работает
+`--reload` и отладка в IDE:
+
+```bash
 uv sync
+cp .env.example .env              # DATABASE_URL уже указывает на localhost:5434
 
-# 2. Конфиг
-cp .env.example .env    # заполнить значения
-
-# 3. Postgres
-docker run -d --name link-shortener-db \
-  -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=link_shortener \
-  -p 5434:5432 postgres:17
-
-# 4. Миграции
-uv run alembic upgrade head
-
-# 5. Сервер
+docker compose up -d db           # только Postgres (порт 5434 наружу)
+uv run alembic upgrade head       # миграции с хоста
 uv run uvicorn app.main:app --reload
 # → http://localhost:8000/docs
 ```
+
+> SQL-логи в консоль включаются переменной `DB_ECHO=true` в `.env` (по умолчанию выключены).
 
 ## API
 
@@ -131,6 +139,14 @@ uv run pytest tests/integration/ -v
 ```
 
 75 тестов, покрытие 92%. Изоляция через SAVEPOINT + rollback (реальный Postgres, без моков БД).
+
+## Docker
+
+- `Dockerfile` — multi-stage (builder → runtime), non-root пользователь, кэширование
+  слоя зависимостей. Финальный образ ~68 МБ (сжатый).
+- `docker-compose.yml` — app + Postgres, связь по DNS-имени `db`, healthcheck, персистентный volume.
+- `docker/entrypoint.sh` — миграции перед запуском сервера.
+- `docker-compose.test.yml` — отдельная тестовая БД (данные в RAM, порт 5433).
 
 ## Статус
 
