@@ -27,14 +27,31 @@ alias dcp='docker compose -f docker-compose.yml -f docker-compose.prod.yml'
 
 ## Обновить приложение (деплой новой версии)
 
+**Обычный путь — автоматический.** Merge PR в `main` запускает workflow
+`Deploy` (`.github/workflows/deploy.yml`): тесты → сборка образа → пуш в GHCR
+→ SSH на сервер и обновление. Руками ничего делать не нужно, прогресс виден
+на вкладке Actions. Кнопка «передеплоить без коммита» — там же (Run workflow).
+
+**Ручной запасной путь** (если Actions недоступен). Сервер больше НЕ собирает
+образ, а тянет готовый из GHCR — поэтому без `--build`:
+
 ```bash
 cd ~/link-shortener
 git pull
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-`--build` пересобирает образ app из свежего кода; миграции применяются
-автоматически в entrypoint. (С этапа 7 это будет делать CI/CD.)
+Миграции применяются автоматически в entrypoint.
+
+**Откат на прошлую версию.** У каждого образа есть тег с SHA коммита. Взять
+конкретный образ вместо `latest`:
+
+```bash
+docker pull ghcr.io/gigitog/link-shortener:<SHA>
+docker tag ghcr.io/gigitog/link-shortener:<SHA> ghcr.io/gigitog/link-shortener:latest
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
 
 ## Посмотреть, что происходит
 
@@ -61,5 +78,4 @@ DOMAIN, BASE_URL. Без любой из них стек не подниметс
 ## Чего пока нет (осознанно)
 
 - Бэкапов БД — данные живут только в volume `pgdata`. TODO: pg_dump по cron.
-- Автодеплоя — руками через git pull (появится на этапе 7).
 - Мониторинга — только docker logs (появится на этапе 9).
