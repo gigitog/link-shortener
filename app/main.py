@@ -1,7 +1,6 @@
 """Точка входа FastAPI-приложения."""
 
 import logging
-import os  # НАМЕРЕННАЯ ПОЛОМКА для демонстрации CI-гейта — будет откачено
 
 from fastapi import FastAPI
 
