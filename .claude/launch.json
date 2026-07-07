@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "uvicorn", "app.main:app", "--reload"],
       "port": 8000,
       "autoPort": false
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "C:\\nvm4w\\nodejs\\node.exe",
+      "runtimeArgs": ["frontend/node_modules/vite/bin/vite.js", "frontend"],
+      "port": 5173,
+      "autoPort": false
     }
   ]
 }
