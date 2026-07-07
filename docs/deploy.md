@@ -75,7 +75,51 @@ sudo reboot  # стек поднимется сам (restart: unless-stopped)
 Переменные: POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB, SECRET_KEY,
 DOMAIN, BASE_URL. Без любой из них стек не поднимется (`${VAR:?}` в compose).
 
+## Бэкапы БД
+
+`docker/backup.sh` (приезжает на сервер вместе с `git pull`) раз в сутки по cron
+делает `pg_dump` из контейнера `db`, сжимает и кладёт в `~/backups/` на диске
+хоста — **не** в docker volume `pgdata`, чтобы копии не пропали вместе с ним
+при случайной пересборке/удалении тома. Хранятся 14 дней (старее — удаляются
+скриптом автоматически).
+
+**Осознанно оставлено локально, без офсайт-копии** (Hetzner Object Storage —
+платный, ~€4.90/мес, для пет-проекта пока не оправдано). Это защищает от
+плохой миграции/случайного `DELETE`, но НЕ защищает от потери самого сервера
+или диска целиком. Если проект вырастет — следующий шаг: rclone + бесплатный
+S3-совместимый бакет (Backblaze B2 / Cloudflare R2).
+
+Настройка cron на сервере (один раз):
+
+```bash
+chmod +x ~/link-shortener/docker/backup.sh
+crontab -e
+# добавить строку — каждый день в 03:00 по времени сервера:
+0 3 * * * /home/deploy/link-shortener/docker/backup.sh >> /home/deploy/backups/backup.log 2>&1
+```
+
+Проверить, что бэкапы создаются:
+
+```bash
+ls -lh ~/backups
+tail ~/backups/backup.log
+```
+
+**Восстановление из бэкапа** (например, после неудачной миграции):
+
+```bash
+cd ~/link-shortener
+gunzip -c ~/backups/link_shortener_<STAMP>.sql.gz | \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db \
+  sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'
+```
+
+⚠️ Это накатывает дамп поверх текущей БД (INSERT'ы упадут на конфликтах, если
+данные уже есть) — перед восстановлением на «живую» БД сначала пересоздать
+таблицы (`docker compose ... down -v` для `db`, поднять заново, накатить
+дамп) либо восстанавливать в чистую БД для проверки.
+
 ## Чего пока нет (осознанно)
 
-- Бэкапов БД — данные живут только в volume `pgdata` (этап 7.1: pg_dump + Object Storage).
+- Офсайт-копии бэкапов (см. выше) — только локально на сервере.
 - Мониторинга — только docker logs (появится на этапе 9).
