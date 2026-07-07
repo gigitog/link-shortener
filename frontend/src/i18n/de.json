@@ -32,6 +32,32 @@
   "common": {
     "loading": "Lädt…"
   },
+  "home": {
+    "heroTitle": "Kurze Links. Klarer Überblick.",
+    "heroSubtitle": "Ein Link-Shortener mit eigenem Dashboard — Links erstellen, verwalten und Klicks im Blick behalten.",
+    "aboutLink": "Mehr über das Projekt"
+  },
+  "about": {
+    "intro": "Dieses Projekt ist ein Lernprojekt: Es entstand, um mich gezielt auf technische Interviews vorzubereiten und Themen wie APIs, Datenbanken, Container und Deployment praktisch zu üben — nicht als kommerzielles Produkt.",
+    "architecture": "Das Backend ist eine FastAPI-Anwendung (Python, async) mit PostgreSQL als Datenbank und JWT-basierter Authentifizierung. Das Frontend ist eine React-SPA, die über denselben Host per Reverse Proxy ausgeliefert wird.",
+    "deployment": "Deployment läuft vollautomatisch: Ein Push nach main baut über GitHub Actions ein Docker-Image, das per CI/CD auf einem Hetzner-Server aktualisiert wird — Caddy übernimmt TLS und das Routing zwischen Backend und Frontend.",
+    "stackTitle": "Tech-Stack",
+    "roadmapTitle": "Roadmap",
+    "roadmapDone": "Erledigt",
+    "roadmapDoneItems": "Backend-API · Auth & Middleware · Tests · Docker · Deployment · CI/CD · DB-Backup · Frontend",
+    "roadmapNext": "Geplant",
+    "roadmapNextItems": "Monitoring (Prometheus/Grafana) · Redis-Cache · Kubernetes · weitere Features (Ablaufdatum, Klick-Statistiken, Custom-Alias, …)",
+    "sourceLink": "Quellcode auf GitHub"
+  },
+  "notFound": {
+    "message": "Diese Seite wurde nicht gefunden.",
+    "backHome": "Zurück zur Startseite"
+  },
+  "footer": {
+    "tagline": "Pet-Projekt zu Lernzwecken",
+    "sourceLink": "Quellcode auf GitHub",
+    "version": "Version"
+  },
   "links": {
     "urlLabel": "URL",
     "urlPlaceholder": "https://beispiel.de/langer-link",
