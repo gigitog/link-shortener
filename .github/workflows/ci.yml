@@ -78,3 +78,30 @@ jobs:
       # Порог покрытия (fail_under = 85) уже задан в pyproject.toml —
       # pytest сам упадёт, если покрытие просядет.
       - run: uv run pytest --cov=app
+
+  # Фронтенд — отдельный job (свой раннер, не зависит от Python-окружения).
+  # Пока только линт + типы + сборка: unit-тестов на фронте на этом этапе
+  # нет, npm run build (tsc -b && vite build) уже ловит большинство ошибок.
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # cache: npm + cache-dependency-path — кэширует ~/.npm по хэшу
+      # package-lock.json, как enable-cache у setup-uv выше.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci (а не npm install): ставит ровно то, что зафиксировано
+      # в package-lock.json, и падает при расхождении с package.json —
+      # тот же принцип, что uv sync --frozen для бэкенда.
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build

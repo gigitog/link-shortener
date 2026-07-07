@@ -1,0 +1,12 @@
+/* Директива Tailwind v4: этой одной строкой подключается вся генерация
+   утилитарных классов (сборка делает это через @tailwindcss/vite,
+   отдельный postcss.config.js — как было в Tailwind v3 — тут не нужен). */
+@import 'tailwindcss';
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+}
