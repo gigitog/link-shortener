@@ -31,5 +31,24 @@
   },
   "common": {
     "loading": "Lädt…"
+  },
+  "links": {
+    "urlLabel": "URL",
+    "urlPlaceholder": "https://beispiel.de/langer-link",
+    "urlInvalid": "Bitte eine gültige URL mit http:// oder https:// eingeben.",
+    "aliasLabel": "Alias (optional)",
+    "aliasInvalid": "3–10 Zeichen: Buchstaben, Ziffern, Bindestrich, Unterstrich.",
+    "createButton": "Kürzen",
+    "createSuccess": "Link erstellt:",
+    "empty": "Noch keine Links vorhanden.",
+    "columnShortUrl": "Kurzlink",
+    "columnOriginalUrl": "Ziel-URL",
+    "columnClicks": "Klicks",
+    "columnCreatedAt": "Erstellt am",
+    "copy": "Kopieren",
+    "copied": "Kopiert!",
+    "paginationPrev": "Zurück",
+    "paginationNext": "Weiter",
+    "paginationStatus": "Seite {{page}} von {{total}}"
   }
 }
