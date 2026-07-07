@@ -4,7 +4,7 @@ import secrets
 import string
 from urllib.parse import urlparse
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,11 +92,33 @@ async def get_link_by_code(db: AsyncSession, short_code: str) -> Link | None:
     return result.scalar_one_or_none()
 
 
-async def get_all_links(db: AsyncSession, user_id: int) -> list[Link]:
-    """Возвращает ссылки текущего пользователя для текущего домена."""
+async def get_links_page(
+    db: AsyncSession,
+    user_id: int,
+    limit: int,
+    offset: int,
+) -> tuple[list[Link], int]:
+    """
+    Возвращает страницу ссылок пользователя + общее число его ссылок.
+
+    Стабильный ORDER BY обязателен: без него Postgres не гарантирует порядок
+    строк, и offset-пагинация может показать одну ссылку дважды, а другую
+    пропустить. Сортируем «новые сверху»; id — tie-breaker на случай
+    одинаковых created_at (id уникален, поэтому порядок полностью детерминирован).
+    """
     domain = _extract_domain()
-    result = await db.execute(select(Link).where(Link.domain == domain, Link.user_id == user_id))
-    return result.scalars().all()
+    where = (Link.domain == domain, Link.user_id == user_id)
+
+    # Два запроса: COUNT по тем же условиям и сама страница.
+    total = await db.scalar(select(func.count()).select_from(Link).where(*where))
+    result = await db.execute(
+        select(Link)
+        .where(*where)
+        .order_by(Link.created_at.desc(), Link.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return result.scalars().all(), total
 
 
 async def increment_clicks(db: AsyncSession, link_id: int) -> None:
