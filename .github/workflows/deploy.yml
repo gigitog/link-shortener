@@ -1,0 +1,91 @@
+# Deploy — конвейер доставки: запускается на push в main (т.е. после merge PR).
+#
+# Цепочка: test → build-and-push (→ deploy добавится в PR 3).
+# Тесты здесь ПОВТОРЯЮТСЯ, хотя PR-гейт (ci.yml) их уже гонял. Зачем:
+# merge-race — два по отдельности зелёных PR могут вместе сломать main;
+# плюс страховка на случай, если что-то попало в main мимо PR.
+# Сломанный main не должен превратиться в образ и уехать на сервер.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Ручная кнопка «передеплоить» на вкладке Actions — на случай, если
+  # деплой флакнул и нужно повторить без нового коммита.
+  workflow_dispatch:
+
+# Деплои НЕ отменяем (в отличие от CI): убить деплой посреди `up -d` —
+# получить полуобновлённый прод. Второй запуск просто ждёт в очереди.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  # Копия test-джобы из ci.yml. Дублирование осознанное: на два файла
+  # это дешевле, чем reusable workflow (workflow_call) — известный
+  # рефакторинг, если джобы начнут расползаться.
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: link_shortener_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --group test
+      - run: uv run pytest --cov=app
+
+  build-and-push:
+    needs: test # сломанный main не должен породить образ
+    runs-on: ubuntu-latest
+
+    # GITHUB_TOKEN по умолчанию read-only; для пуша пакета в GHCR
+    # этому job'у нужно явно выдать право packages: write.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # buildx — расширенный сборщик Docker; нужен для внешнего кэша слоёв.
+      - uses: docker/setup-buildx-action@v3
+
+      # Логин в GHCR через GITHUB_TOKEN — автоматический токен на один
+      # запуск workflow, привязан к этому репо и умирает вместе с job'ом.
+      # Никаких личных PAT и ручных секретов.
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Два тега:
+      #   latest      — «текущий прод», его тянет сервер при деплое;
+      #   <commit SHA> — неизменяемый снимок: аудит («что крутится на проде?»)
+      #                  и мгновенный откат на любую прошлую версию.
+      # Кэш слоёв (type=gha) живёт в кэше GitHub Actions: неизменившиеся
+      # слои (например, uv sync с тем же uv.lock) не пересобираются.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/gigitog/link-shortener:latest
+            ghcr.io/gigitog/link-shortener:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
