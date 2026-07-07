@@ -89,3 +89,36 @@ jobs:
             ghcr.io/gigitog/link-shortener:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push # деплоим только то, что успешно собралось и запушилось
+    runs-on: ubuntu-latest
+    steps:
+      # Раскладываем приватный ключ и известный host key из секретов на раннер.
+      # Раннер одноразовый — после job'а всё это уничтожается вместе с VM.
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
+
+      # Заходим на сервер и обновляем прод. Всё внутри heredoc выполняется
+      # НА СЕРВЕРЕ. set -e: любая упавшая команда обрывает деплой, а не идёт
+      # дальше «как будто всё хорошо».
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            set -e
+            cd ~/link-shortener
+            # Забираем свежие compose-файлы/Caddyfile из репо. --ff-only падает,
+            # если на сервере руками правили файлы (тогда деплой лучше остановить).
+            git pull --ff-only
+            # Тянем новый образ app из GHCR (публичный — без docker login).
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app
+            # Пересоздаём только app (образ сменился); db и caddy не трогаем.
+            # Без --build: сервер больше ничего не собирает. Миграции — в entrypoint.
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            # Чистим повисшие старые слои, чтобы диск не забивался при каждом деплое.
+            docker image prune -f
+          EOF

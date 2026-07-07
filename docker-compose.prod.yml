@@ -26,6 +26,14 @@ services:
     ports: !override []
 
   app:
+    # Прод НЕ собирает образ сам — тянет готовый из GHCR, собранный в CI.
+    # Тот же артефакт, что прошёл тесты и сборку, едет на сервер
+    # («build once, run everywhere»).
+    image: ghcr.io/gigitog/link-shortener:latest
+    # !reset null убирает `build: .` из базового файла при слиянии — чтобы
+    # случайный `up --build` на сервере не пересобрал образ из локального кода
+    # вместо CI-образа. (!reset — тот же механизм слияния, что и !override ниже.)
+    build: !reset null
     environment:
       SECRET_KEY: ${SECRET_KEY:?задай SECRET_KEY в .env (python3 -c "import secrets; print(secrets.token_hex(32))")}
       BASE_URL: ${BASE_URL:?задай BASE_URL в .env (напр. https://s.faiuk.me)}
