@@ -4,8 +4,8 @@ import pytest
 
 from app.services.link import (
     create_link,
-    get_all_links,
     get_link_by_code,
+    get_links_page,
     increment_clicks,
 )
 from app.services.user import create_user
@@ -48,27 +48,47 @@ class TestGetLinkByCode:
         assert found is None
 
 
-class TestGetAllLinks:
+class TestGetLinksPage:
     async def test_returns_user_links(self, db_session):
         user = await create_user(db_session, "all1@test.com", "password123")
         await create_link(db_session, "https://a.com", custom_alias="aaa111", user_id=user.id)
         await create_link(db_session, "https://b.com", custom_alias="bbb222", user_id=user.id)
 
-        links = await get_all_links(db_session, user_id=user.id)
+        links, total = await get_links_page(db_session, user_id=user.id, limit=20, offset=0)
         assert len(links) == 2
+        assert total == 2
 
     async def test_empty(self, db_session):
         user = await create_user(db_session, "all2@test.com", "password123")
-        links = await get_all_links(db_session, user_id=user.id)
+        links, total = await get_links_page(db_session, user_id=user.id, limit=20, offset=0)
         assert links == []
+        assert total == 0
 
     async def test_does_not_return_other_users_links(self, db_session):
         user1 = await create_user(db_session, "owner@test.com", "password123")
         user2 = await create_user(db_session, "other@test.com", "password123")
         await create_link(db_session, "https://a.com", custom_alias="own111", user_id=user1.id)
 
-        links = await get_all_links(db_session, user_id=user2.id)
+        links, total = await get_links_page(db_session, user_id=user2.id, limit=20, offset=0)
         assert links == []
+        assert total == 0
+
+    async def test_newest_first(self, db_session):
+        user = await create_user(db_session, "order1@test.com", "password123")
+        await create_link(db_session, "https://a.com", custom_alias="orderA", user_id=user.id)
+        await create_link(db_session, "https://b.com", custom_alias="orderB", user_id=user.id)
+
+        links, _ = await get_links_page(db_session, user_id=user.id, limit=20, offset=0)
+        assert [link.short_code for link in links] == ["orderB", "orderA"]
+
+    async def test_limit_and_offset(self, db_session):
+        user = await create_user(db_session, "page1@test.com", "password123")
+        for i in range(3):
+            await create_link(db_session, f"https://a.com/{i}", user_id=user.id)
+
+        links, total = await get_links_page(db_session, user_id=user.id, limit=1, offset=1)
+        assert len(links) == 1
+        assert total == 3
 
 
 class TestIncrementClicks:

@@ -3,7 +3,9 @@
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
 from app.routers import auth, links
 
@@ -25,6 +27,20 @@ app = FastAPI(
 # затем логирование, затем запрос идёт в роутер.
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RateLimitMiddleware, max_requests=30, window_seconds=60)
+
+# CORS — самым внешним слоем (добавлен последним), по двум причинам:
+#   1. Ответ 429 от rate-limiter тоже должен получить CORS-заголовки,
+#      иначе браузер в dev-режиме скроет тело ошибки от JS-кода фронта.
+#   2. Preflight-запросы (OPTIONS) обрабатываются сразу здесь
+#      и не тратят лимит rate-limiter'а.
+# allow_credentials не включаем: токен передаётся в заголовке Authorization,
+# а не в cookie, поэтому браузерные «credentials» не нужны.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(auth.router)
 app.include_router(links.router)

@@ -1,6 +1,6 @@
 """HTTP-роуты для работы со ссылками."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,14 +8,31 @@ from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.link import LinkCreate, LinkResponse
+from app.schemas.link import LinkCreate, LinkListResponse, LinkResponse
 from app.services import link as link_service
 
 router = APIRouter()
 
 # Зарезервированные пути — нельзя создать alias с таким именем,
-# иначе он «перекроет» реальный роут API.
-RESERVED_PATHS = {"api", "auth", "docs", "redoc", "openapi.json", "health", "metrics", "links"}
+# иначе он «перекроет» реальный роут API или страницу фронтенда:
+# в проде Caddy отдаёт пути SPA (login, dashboard, ...) контейнеру фронта,
+# и короткая ссылка с таким кодом стала бы недостижимой.
+RESERVED_PATHS = {
+    "api",
+    "auth",
+    "docs",
+    "redoc",
+    "openapi.json",
+    "health",
+    "metrics",
+    "links",
+    # страницы SPA + папка статики Vite (см. docker/Caddyfile, матчер @spa)
+    "login",
+    "register",
+    "dashboard",
+    "about",
+    "assets",
+}
 
 
 def _build_short_url(short_code: str) -> str:
@@ -61,14 +78,25 @@ async def create_link(
     return _to_response(link)
 
 
-@router.get("/links", response_model=list[LinkResponse])
-async def get_all_links(
+@router.get("/links", response_model=LinkListResponse)
+async def get_links(
+    # Query(...) с ge/le — валидация прямо в сигнатуре: limit=0 или limit=101 → 422.
+    # Потолок 100 защищает БД от запроса «отдай всё» одним махом.
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Получить все ссылки текущего пользователя."""
-    links = await link_service.get_all_links(db, user_id=user.id)
-    return [_to_response(link) for link in links]
+    """Получить страницу ссылок текущего пользователя (новые сверху)."""
+    links, total = await link_service.get_links_page(
+        db, user_id=user.id, limit=limit, offset=offset
+    )
+    return LinkListResponse(
+        items=[_to_response(link) for link in links],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/links/{short_code}", response_model=LinkResponse)
