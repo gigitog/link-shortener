@@ -26,6 +26,19 @@ class Settings(BaseSettings):
     # но в проде замусоривает логи и может «светить» данные — по умолчанию выключено.
     db_echo: bool = False
 
+    # Origin'ы, которым разрешён CORS (через запятую). Нужно только для dev-режима,
+    # когда фронт (vite, порт 5173) ходит к API (uvicorn, порт 8000) напрямую —
+    # браузер считает это разными origin. В проде фронт и API за одним доменом
+    # (Caddy делит пути), CORS не задействуется.
+    # Строка, а не list[str]: для списков pydantic-settings требует JSON-синтаксис
+    # в .env (CORS_ORIGINS=["..."]), это неудобно — проще split по запятой.
+    cors_origins: str = "http://localhost:5173"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """CORS_ORIGINS из .env → список origin'ов без пустых элементов."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

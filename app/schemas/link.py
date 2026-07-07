@@ -45,3 +45,18 @@ class LinkResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class LinkListResponse(BaseModel):
+    """
+    Ответ GET /links — страница списка с метаданными пагинации («конверт»).
+
+    total нужен фронту, чтобы посчитать число страниц («Seite 2 von 5»).
+    Конверт в теле (а не заголовок X-Total-Count) — самодокументируется
+    в Swagger и не требует от клиента читать заголовки.
+    """
+
+    items: list[LinkResponse]
+    total: int  # всего ссылок у пользователя (не только на этой странице)
+    limit: int
+    offset: int
