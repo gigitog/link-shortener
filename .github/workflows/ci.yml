@@ -1,0 +1,80 @@
+# CI — гейт качества на pull request: линтер + тесты.
+#
+# Запускается на КАЖДЫЙ push в ветку открытого PR. Это именно гейт:
+# ничего не собирает и не деплоит, только отвечает «можно ли мержить».
+# Сборка и деплой живут отдельно — в deploy.yml (триггер: push в main).
+
+name: CI
+
+on:
+  pull_request:
+
+# Если в PR быстро запушить два коммита подряд, прогон по первому уже
+# неактуален — отменяем его и экономим минуты раннера.
+# group: один PR (github.ref) = одна очередь.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Линтер и тесты — отдельные jobs: идут параллельно на разных VM,
+  # а в GitHub появляются два независимых status check (пригодится
+  # для branch protection: можно требовать оба).
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # setup-uv ставит uv и (по requires-python из pyproject.toml) сам Python.
+      # Отдельный actions/setup-python не нужен.
+      # enable-cache кэширует пакеты между прогонами — быстрее и дешевле.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # --frozen: НЕ пере-резолвить зависимости, а падать, если uv.lock
+      # разошёлся с pyproject.toml. CI должен проверять ровно то, что
+      # зафиксировано в lock-файле, а не «что-нибудь посвежее».
+      # Группа dev (ruff) ставится uv по умолчанию.
+      - run: uv sync --frozen
+
+      - run: uv run ruff check .          # линтер: ошибки, импорты, апгрейды
+      - run: uv run ruff format --check . # форматтер: только проверка, без правок
+
+  test:
+    runs-on: ubuntu-latest
+
+    # Service container — аналог нашего docker-compose.test.yml, но силами
+    # GitHub: рядом с job'ом поднимается контейнер Postgres. Конфиг (юзер,
+    # пароль, БД, порт 5433) в точности повторяет tests/conftest.py,
+    # который жёстко ждёт postgresql+asyncpg://app:app@localhost:5433/link_shortener_test.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: link_shortener_test
+        ports:
+          - 5433:5432
+        # Без health-check шаги job'а могут стартовать раньше, чем Postgres
+        # готов принимать соединения, — тесты упадут по connection refused.
+        # GitHub ждёт, пока контейнер станет healthy (как service_healthy в compose).
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen --group test
+
+      # Порог покрытия (fail_under = 85) уже задан в pyproject.toml —
+      # pytest сам упадёт, если покрытие просядет.
+      - run: uv run pytest --cov=app
