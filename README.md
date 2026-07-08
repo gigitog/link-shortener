@@ -1,8 +1,12 @@
 # Link Shortener
 
-Сервис сокращения ссылок. Пет-проект для изучения FastAPI, Docker и Kubernetes.
+Сервис сокращения ссылок. Пет-проект для изучения FastAPI, React, Docker и Kubernetes.
+
+**Живой сервис:** https://s.faiuk.me (интерфейс на немецком)
 
 ## Стек
+
+Бэкенд:
 
 - Python 3.13, [uv](https://docs.astral.sh/uv/)
 - FastAPI + Uvicorn (async)
@@ -10,9 +14,23 @@
 - JWT-авторизация (bcrypt + PyJWT)
 - Ruff (линтер/форматтер)
 
+Фронтенд (`frontend/`):
+
+- React 19 + Vite + TypeScript
+- Tailwind CSS v4, TanStack Query, react-router-dom v7, react-i18next (немецкий)
+- Vitest + React Testing Library — юнит-тесты
+- oxlint — линтер
+
+Инфраструктура:
+
+- Docker + Docker Compose (backend, frontend, Postgres — 3 образа)
+- Caddy — reverse proxy, автоматический TLS, роутинг одним доменом
+- GitHub Actions — CI (линт+тесты на PR) и CD (сборка образов, автодеплой на push в `main`)
+- Hetzner Cloud — прод-сервер
+
 ## Архитектура
 
-Слоистая структура: роутер (HTTP) → сервис (бизнес-логика) → модель (БД).
+Слоистая структура бэкенда: роутер (HTTP) → сервис (бизнес-логика) → модель (БД).
 
 ```mermaid
 graph LR
@@ -25,6 +43,11 @@ graph LR
     US --> DB[(PostgreSQL)]
     LS --> DB
 ```
+
+На проде перед бэкендом стоит Caddy — один домен, роутинг по пути:
+`/api/*` → бэкенд (FastAPI), страницы SPA (`/`, `/login`, `/dashboard`, ...) →
+фронтенд (nginx со статикой), всё остальное (короткие коды, `/docs`) → бэкенд.
+Подробности — `docker/Caddyfile` и [docs/deploy.md](docs/deploy.md).
 
 ## Схема БД
 
@@ -85,8 +108,9 @@ sequenceDiagram
 
 ```bash
 cp .env.example .env              # заполнить значения (как минимум SECRET_KEY)
-docker compose up --build         # поднимет app + Postgres
-# → http://localhost:8000/docs
+docker compose up --build         # поднимет app + frontend + Postgres
+# → http://localhost:8000/docs    (backend)
+# → http://localhost:3000         (frontend, прод-сборка через nginx)
 ```
 
 Контейнер `app` сам применяет миграции (`alembic upgrade head`) при старте.
@@ -94,17 +118,22 @@ docker compose up --build         # поднимет app + Postgres
 
 ### Вариант B — гибридный dev-режим (hot-reload)
 
-БД поднимаем в Docker, приложение запускаем локально через uv — так работает
-`--reload` и отладка в IDE:
+БД поднимаем в Docker, бэкенд и фронтенд — локально (hot-reload, отладка в IDE):
 
 ```bash
+# Бэкенд
 uv sync
 cp .env.example .env              # DATABASE_URL уже указывает на localhost:5434
-
 docker compose up -d db           # только Postgres (порт 5434 наружу)
 uv run alembic upgrade head       # миграции с хоста
 uv run uvicorn app.main:app --reload
 # → http://localhost:8000/docs
+
+# Фронтенд (в отдельном терминале)
+cd frontend
+npm install
+npm run dev
+# → http://localhost:5173 (проксирует /api на localhost:8000)
 ```
 
 > SQL-логи в консоль включаются переменной `DB_ECHO=true` в `.env` (по умолчанию выключены).
@@ -117,37 +146,63 @@ uv run uvicorn app.main:app --reload
 | `POST` | `/auth/login` | — | Логин → JWT-токен |
 | `GET` | `/auth/me` | 🔒 | Данные текущего пользователя |
 | `POST` | `/links` | 🔒 | Создать короткую ссылку |
-| `GET` | `/links` | 🔒 | Список своих ссылок |
+| `GET` | `/links?limit=&offset=` | 🔒 | Страница списка своих ссылок (конверт `{items, total, limit, offset}`) |
 | `GET` | `/links/{code}` | — | Информация о ссылке |
 | `GET` | `/{code}` | — | Редирект → оригинальный URL |
 
+Полная интерактивная документация — на `/docs` (Swagger UI).
+
+## Фронтенд
+
+SPA на немецком языке: лендинг, регистрация/логин, `/dashboard` (создание
+ссылок, список с пагинацией, копирование в буфер), `/about` («Über das
+Projekt» — витрина для рекрутёра). JWT хранится в `localStorage`, серверное
+состояние — через TanStack Query. Подробнее о решениях — [DECISIONS.md](DECISIONS.md).
+
 ## Тесты
 
+Бэкенд:
+
 ```bash
-# Поднять тестовую БД (отдельный контейнер, порт 5433, данные в RAM)
-docker compose -f docker-compose.test.yml up -d
-
-# Запуск тестов
+docker compose -f docker-compose.test.yml up -d   # тестовая БД (порт 5433, данные в RAM)
 uv run pytest -v
-
-# С покрытием
 uv run pytest --cov=app --cov-report=term-missing
-
-# Только unit / только integration
 uv run pytest tests/unit/ -v
 uv run pytest tests/integration/ -v
 ```
 
-75 тестов, покрытие 92%. Изоляция через SAVEPOINT + rollback (реальный Postgres, без моков БД).
+82 теста, покрытие 92%. Изоляция через SAVEPOINT + rollback (реальный Postgres, без моков БД).
+
+Фронтенд:
+
+```bash
+cd frontend
+npm run test    # Vitest + React Testing Library
+npm run lint     # oxlint
+```
 
 ## Docker
 
 - `Dockerfile` — multi-stage (builder → runtime), non-root пользователь, кэширование
   слоя зависимостей. Финальный образ ~68 МБ (сжатый).
-- `docker-compose.yml` — app + Postgres, связь по DNS-имени `db`, healthcheck, персистентный volume.
+- `frontend/Dockerfile` — multi-stage (node → nginx): сборка Vite, статика раздаётся nginx.
+- `docker-compose.yml` — app + frontend + Postgres, связь по DNS-именам, healthcheck, персистентный volume.
+- `docker-compose.prod.yml` — прод-оверрайд: образы из GHCR вместо локальной сборки, Caddy как reverse proxy с авто-TLS.
 - `docker/entrypoint.sh` — миграции перед запуском сервера.
 - `docker-compose.test.yml` — отдельная тестовая БД (данные в RAM, порт 5433).
 
+## CI/CD и деплой
+
+- **CI** (`.github/workflows/ci.yml`, на каждый PR): ruff (линт+формат) и pytest для бэкенда,
+  oxlint + Vitest + `tsc`/`vite build` для фронтенда — гейт перед merge.
+- **CD** (`.github/workflows/deploy.yml`, на push в `main`): тесты → сборка обоих Docker-образов
+  → пуш в GHCR → SSH-деплой на Hetzner (pull образов, `caddy reload`).
+
+Прод-сервер: Hetzner Cloud CX22, Caddy + автоматический TLS, ежедневный бэкап БД.
+Подробная шпаргалка по серверу — [docs/deploy.md](docs/deploy.md).
+
 ## Статус
 
-🚧 В разработке. Дорожная карта — в [CLAUDE.md](CLAUDE.md), ключевые решения — в [DECISIONS.md](DECISIONS.md).
+Бэкенд, авторизация, тесты, Docker, деплой, CI/CD и фронтенд — готовы и работают на проде.
+Дорожная карта (мониторинг, Redis, Kubernetes, дальнейшие фичи) — в [CLAUDE.md](CLAUDE.md),
+ключевые решения и их причины — в [DECISIONS.md](DECISIONS.md).
