@@ -29,6 +29,15 @@
 - **pytest** + pytest-asyncio + httpx — тестирование (async, реальный Postgres).
 - **pytest-cov** — покрытие кода.
 
+Фронтенд (`frontend/`):
+
+- **React 19 + Vite + TypeScript** — SPA, статика раздаётся отдельным nginx-контейнером.
+- **Tailwind CSS v4** — стили (плагин в vite.config, без postcss-конфига).
+- **TanStack Query** — серверное состояние (кэш, инвалидация) + нативный fetch (без axios).
+- **react-router-dom v7** — роутинг.
+- **react-i18next** — интерфейс на немецком (`de.json`), английский — поздний этап.
+- **oxlint** — линтер.
+
 ## Команды
 
 ```bash
@@ -49,11 +58,20 @@ uv run pytest tests/unit/ -v                     # только unit-тесты
 uv run pytest tests/integration/ -v              # только интеграционные
 ```
 
-Docker (этап 5):
+Фронтенд (`frontend/`):
 
 ```bash
-docker compose up --build     # весь стек: app + Postgres (миграции при старте app)
-docker compose up -d db       # только БД (для гибридного dev-режима: app через uv)
+npm install       # установить зависимости
+npm run dev        # dev-сервер Vite с HMR (http://localhost:5173, проксирует /api на :8000)
+npm run lint        # oxlint
+npm run build       # tsc -b && vite build → frontend/dist
+```
+
+Docker (этап 5, фронтенд — этап 8):
+
+```bash
+docker compose up --build     # весь стек: app + frontend + Postgres (миграции при старте app)
+docker compose up -d db       # только БД (для гибридного dev-режима: app через uv, frontend через npm run dev)
 docker compose down           # остановить (volume pgdata с данными остаётся)
 docker compose logs -f app    # логи приложения
 ```
@@ -64,14 +82,16 @@ docker compose logs -f app    # логи приложения
 # Деплой теперь автоматический: merge PR в main → workflow Deploy сам собирает
 # образ, пушит в GHCR и обновляет сервер по SSH. Руками ничего не нужно.
 
-# Ручной запасной путь (Actions недоступен). Сервер НЕ собирает образ — тянет из GHCR:
+# Ручной запасной путь (Actions недоступен). Сервер НЕ собирает образы — тянет из GHCR:
 ssh deploy@178.105.29.149     # сервер Hetzner (вход только по SSH-ключу)
 cd ~/link-shortener && git pull \
-  && docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app \
+  && docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app frontend \
   && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 Сервис: https://s.faiuk.me (Caddy терминирует TLS, наружу открыты только 80/443).
+Роутинг одним доменом: `/api/*` → `app`, страницы SPA → `frontend` (nginx), всё
+остальное (короткие коды, `/docs`) → `app` — см. `docker/Caddyfile`.
 
 ## Структура app/
 
@@ -95,6 +115,30 @@ app/
     auth.py           — hash_password, verify_password, create/decode JWT
     link.py           — CRUD ссылок
     user.py           — регистрация, аутентификация
+```
+
+## Структура frontend/src/
+
+```
+frontend/src/
+  main.tsx            — QueryClientProvider, i18n init, RouterProvider
+  router.tsx          — /, /login, /register, /dashboard, /about, /*(404)
+  vite-env.d.ts        — типы env-переменных Vite (VITE_APP_VERSION)
+  api/
+    client.ts          — fetch-обёртка: BASE=/api, JWT из localStorage, ApiError, 401→logout
+    auth.ts  links.ts  types.ts   — вызовы API + TS-зеркала Pydantic-схем
+  auth/
+    AuthContext.tsx     — token в state + localStorage; login()/logout()
+    RequireAuth.tsx      — guard: нет токена → <Navigate to="/login">
+  components/           — Layout, Header, Footer, Spinner, ErrorMessage,
+                          LinkForm, LinkTable, Pagination, CopyButton
+  pages/                — HomePage, LoginPage, RegisterPage, DashboardPage,
+                          AboutPage, NotFoundPage
+  i18n/index.ts de.json  — lng: 'de'; ключи по неймспейсам (nav.*, auth.*,
+                          links.*, home.*, about.*, footer.*, errors.*)
+  lib/
+    errors.ts           — (status, контекст) → i18n-ключ немецкого сообщения
+    validation.ts        — PASSWORD_MIN_LENGTH, ALIAS_RE, isValidUrl
 ```
 
 ## Конвенции
@@ -122,22 +166,11 @@ app/
    14 дней локально на диске хоста (вне docker volume `pgdata`). ✅
    Офсайт-копия в Object Storage осознанно отложена (платно, не оправдано
    для пет-проекта пока) — см. `docs/deploy.md` и `DECISIONS.md`.
-8. **Фронтенд** ← *сейчас здесь* — сначала план и дизайн, затем вайбкодинг. Стек: React + Vite + TypeScript,
-   статика раздаётся отдельным nginx-контейнером. На бэкенде появляется CORS + минимальные
-   доработки API под UI (пагинация списка ссылок). Реализуем на текущем API.
-   - **Язык интерфейса — немецкий (Deutsch).** Тексты сразу выносим через i18n-словарь
-     (не хардкодим в JSX), чтобы на будущем этапе добавить английский без переписывания
-     разметки. Английский — отдельный поздний этап (переключатель языка + перевод словаря).
-   - **В UI — пометка, что это пет-проект + ссылка на GitHub**
-     (https://github.com/gigitog/link-shortener). Например, в подвале (Footer).
-   - **Версия сервиса в футере** — короткий git SHA (7 символов), прокидывается при
-     сборке как env-переменная из CI. Единая версия на весь сервис (не отдельно фронт/бэк —
-     монорепо, один пайплайн). Обновляется при каждом деплое автоматически.
-   - **Страница «Über das Projekt»** — короткое техническое описание проекта
-     (Python, FastAPI, PostgreSQL, Docker, деплой на Hetzner и т.д.) + сжатая дорожная карта.
-     Цель — дать рекрутеру представление о проекте, не уходя с сайта; это НЕ копия README,
-     а его краткая витрина. Сделать одним из первых экранов фронта.
-9. **Мониторинг / observability** — Prometheus (метрики) + Grafana (дашборды),
+8. **Фронтенд** — React + Vite + TypeScript, статика раздаётся отдельным nginx-контейнером,
+   Caddy роутит по пути на одном домене. Немецкий интерфейс, страница «Über das Projekt»,
+   пометка pet-project + версия в футере. Реализован на 5 PR (пагинация+CORS → каркас →
+   dashboard → лендинг/About → cutover); подробности — `DECISIONS.md`. ✅
+9. **Мониторинг / observability** ← *сейчас здесь* — Prometheus (метрики) + Grafana (дашборды),
    эндпоинты `/health` (liveness) и `/metrics`, структурированные JSON-логи.
 10. **Кэш (Redis)** — cache-aside для горячего пути `GET /{code}` (редирект без похода в БД);
     перенос состояния rate-limiter из памяти процесса в Redis (общий счётчик — готовит почву

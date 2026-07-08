@@ -1,20 +1,37 @@
 # Caddyfile — конфиг reverse proxy для прода.
 #
-# Caddy делает три вещи «из коробки», для которых nginx нужно настраивать вручную:
-#   1. Получает TLS-сертификат Let's Encrypt при первом запросе к домену
-#      (ACME HTTP-01 challenge: LE обращается на http://ДОМЕН/.well-known/... —
-#      поэтому DNS-запись должна указывать на сервер ДО старта Caddy).
-#   2. Автоматически продлевает сертификат (хранит его в volume /data).
-#   3. Редиректит http:// → https:// сам, без отдельного server-блока.
+# Один домен, три направления трафика (порядок блоков ниже важен — Caddy
+# берёт первый совпавший `handle`, остальные не проверяет):
+#   1. /api/*                        → backend (app)
+#   2. страницы SPA (/, /login, ...) → frontend (nginx со статикой)
+#   3. всё остальное (короткие коды, /docs, /health) → backend (app)
 #
 # {$DOMAIN} — подстановка переменной окружения контейнера (задаётся в compose
 # из .env). Так домен живёт в одном месте — .env, рядом с BASE_URL.
+#
+# Caddy сам получает и продлевает TLS-сертификат Let's Encrypt (ACME HTTP-01)
+# и редиректит http→https — это не описано отдельно, Caddy делает это всегда.
 
 {$DOMAIN} {
-	# Проксируем всё приложению. "app" — имя сервиса в compose-сети,
-	# 8000 — внутренний порт uvicorn (наружу он на проде не публикуется).
-	# Caddy сам добавляет заголовок X-Forwarded-For с реальным IP клиента —
-	# его читает uvicorn (--proxy-headers), чтобы rate-limiter видел клиентов,
-	# а не IP прокси.
-	reverse_proxy app:8000
+	# handle_path (в отличие от handle) СРЕЗАЕТ совпавший префикс перед тем,
+	# как проксировать дальше: /api/auth/login → app получает /auth/login.
+	# Код бэкенда остаётся не в курсе, что снаружи у путей есть префикс /api.
+	handle_path /api/* {
+		reverse_proxy app:8000
+	}
+
+	# Именованный матчер (@spa) — список путей, которые обслуживает React-роутер.
+	# Новая страница фронтенда = новая строка здесь И в RESERVED_PATHS
+	# (app/routers/links.py) — иначе либо SPA не откроется по прямой ссылке,
+	# либо чей-то короткий код "перекроет" будущую страницу.
+	@spa path / /login /register /dashboard /about /assets/* /favicon.ico /robots.txt
+	handle @spa {
+		reverse_proxy frontend:80
+	}
+
+	# Catch-all: короткие коды (/abc1234), /docs, /openapi.json, /health —
+	# всё, что не подошло под предыдущие блоки.
+	handle {
+		reverse_proxy app:8000
+	}
 }

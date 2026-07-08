@@ -43,7 +43,14 @@ services:
       FORWARDED_ALLOW_IPS: "*"
     ports: !override []
 
-  # --- Reverse proxy: терминирует TLS, проксирует всё в app ---
+  # Тот же паттерн build once, run everywhere, что и у app: прод тянет
+  # готовый образ из GHCR вместо сборки на слабой CX22.
+  frontend:
+    image: ghcr.io/gigitog/link-shortener-frontend:latest
+    build: !reset null
+    ports: !override []
+
+  # --- Reverse proxy: терминирует TLS, проксирует в app и frontend ---
   caddy:
     image: caddy:2
     ports:
@@ -62,6 +69,7 @@ services:
       - caddy_config:/config
     depends_on:
       - app
+      - frontend
     restart: unless-stopped
 
 volumes:
