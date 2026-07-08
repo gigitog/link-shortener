@@ -55,6 +55,14 @@ services:
         # Не просто «запусти db раньше app», а «дождись, пока healthcheck db
         # станет healthy». Иначе app стартует, дёрнет БД, получит отказ и упадёт.
         condition: service_healthy
+    healthcheck:
+      # В slim-образе нет curl/wget — используем стандартную библиотеку Python,
+      # она есть всегда. /health — liveness (без БД), см. app/routers/health.py.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     restart: unless-stopped
 
   # --- Фронтенд ---
