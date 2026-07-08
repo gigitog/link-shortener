@@ -14,10 +14,13 @@ Firewall Hetzner Cloud: открыты только 22, 80, 443.
 ## Стек
 
 `~/link-shortener` — клон GitHub-репозитория, зачекаученный на ветку **`main`**
-(это ствол проекта — туда мержатся все PR, оттуда идёт автодеплой). Три контейнера:
+(это ствол проекта — туда мержатся все PR, оттуда идёт автодеплой). Четыре контейнера:
 
 - `caddy` — reverse proxy, TLS (сертификаты в volume `caddy_data` — не удалять!);
+  роутинг по пути: `/api/*` → `app`, страницы SPA → `frontend`, всё
+  остальное (короткие коды, `/docs`) → `app` (см. `docker/Caddyfile`);
 - `app` — FastAPI (порт 8000 только внутри docker-сети);
+- `frontend` — nginx со статикой React-сборки (порт 80 только внутри docker-сети);
 - `db` — Postgres 17 (данные в volume `pgdata` — не удалять!).
 
 > ⚠️ **Сервер должен стоять на `main`.** Автодеплой делает `git pull` той ветки,
@@ -45,11 +48,21 @@ alias dcp='docker compose -f docker-compose.yml -f docker-compose.prod.yml'
 ```bash
 cd ~/link-shortener
 git pull
-docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app frontend
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# git pull обновил Caddyfile, но caddy не пересоздавался — сам файл не перечитает:
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec caddy \
+  caddy reload --config /etc/caddy/Caddyfile
 ```
 
 Миграции применяются автоматически в entrypoint.
+
+**Первый деплой фронтенда (разово).** Пакет `link-shortener-frontend` в GHCR
+после первого пуша из workflow приезжает приватным — `pull frontend` на
+сервере упадёт с `denied`. Один раз вручную: GitHub → Packages →
+`link-shortener-frontend` → Package settings → Change visibility → Public.
+Дальше все последующие деплои идут без этого шага (та же процедура уже
+проходилась для пакета `link-shortener` на этапе 7).
 
 **Откат на прошлую версию.** У каждого образа есть тег с SHA коммита. Взять
 конкретный образ вместо `latest`:
