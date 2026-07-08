@@ -1,5 +1,221 @@
 # Link Shortener
 
+> Zweisprachige README: **Deutsch zuerst**, die russische Originalversion folgt
+> weiter unten (nach dem Trenner `---`).
+
+Kurz-URL-Dienst. Pet-Projekt zum Erlernen von FastAPI, React, Docker und Kubernetes.
+
+**Live-Service:** https://s.faiuk.me (Oberfläche auf Deutsch)
+
+## Stack
+
+Backend:
+
+- Python 3.13, [uv](https://docs.astral.sh/uv/)
+- FastAPI + Uvicorn (async)
+- PostgreSQL + SQLAlchemy 2.x (async) + Alembic
+- JWT-Authentifizierung (bcrypt + PyJWT)
+- Ruff (Linter/Formatter)
+
+Frontend (`frontend/`):
+
+- React 19 + Vite + TypeScript
+- Tailwind CSS v4, TanStack Query, react-router-dom v7, react-i18next (Deutsch)
+- Vitest + React Testing Library — Unit-Tests
+- oxlint — Linter
+
+Infrastruktur:
+
+- Docker + Docker Compose (Backend, Frontend, Postgres — 3 Images)
+- Caddy — Reverse Proxy, automatisches TLS, Routing über eine Domain
+- GitHub Actions — CI (Lint+Tests bei PR) und CD (Image-Build, Auto-Deploy bei Push nach `main`)
+- Hetzner Cloud — Produktionsserver
+
+## Architektur
+
+Schichtenarchitektur im Backend: Router (HTTP) → Service (Geschäftslogik) → Model (DB).
+
+```mermaid
+graph LR
+    Client[Client] --> MW[Middleware<br/>logging + rate limit]
+    MW --> Auth[Auth Router<br/>/auth/*]
+    MW --> Links[Links Router<br/>/links/*, /code]
+    Auth --> AS[Auth Service<br/>JWT, bcrypt]
+    Auth --> US[User Service<br/>CRUD]
+    Links --> LS[Link Service<br/>CRUD]
+    US --> DB[(PostgreSQL)]
+    LS --> DB
+```
+
+In Produktion steht vor dem Backend Caddy — eine Domain, Routing nach Pfad:
+`/api/*` → Backend (FastAPI), SPA-Seiten (`/`, `/login`, `/dashboard`, ...) →
+Frontend (nginx mit statischen Dateien), alles andere (Kurzcodes, `/docs`) → Backend.
+Details — `docker/Caddyfile` und [docs/deploy.md](docs/deploy.md).
+
+## Datenbankschema
+
+```mermaid
+erDiagram
+    users {
+        bigint id PK
+        varchar email UK
+        varchar hashed_password
+        datetime created_at
+    }
+    links {
+        bigint id PK
+        varchar domain
+        varchar short_code
+        text original_url
+        int clicks_count
+        datetime created_at
+        bigint user_id FK
+    }
+    users ||--o{ links : "besitzt"
+```
+
+## Request-Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant M as Middleware
+    participant R as Router
+    participant S as Service
+    participant DB as PostgreSQL
+
+    Note over C,DB: Link erstellen (POST /links)
+    C->>M: POST /links + JWT
+    M->>M: Rate Limit ✓
+    M->>R: Anfrage
+    R->>R: Depends(get_current_user) → User
+    R->>S: create_link(url, user_id)
+    S->>DB: INSERT INTO links
+    DB-->>S: Link
+    S-->>R: Link
+    R-->>C: 201 + LinkResponse
+
+    Note over C,DB: Weiterleitung (GET /{code})
+    C->>M: GET /abc1234
+    M->>R: Anfrage
+    R->>S: get_link_by_code("abc1234")
+    S->>DB: SELECT ... WHERE short_code=
+    DB-->>S: Link
+    S->>S: increment_clicks
+    R-->>C: 307 → original_url
+```
+
+## Start
+
+### Variante A — gesamter Stack in Docker (am einfachsten)
+
+```bash
+cp .env.example .env              # Werte ausfüllen (mindestens SECRET_KEY)
+docker compose up --build         # startet app + frontend + Postgres
+# → http://localhost:8000/docs    (Backend)
+# → http://localhost:3000         (Frontend, Produktions-Build über nginx)
+```
+
+Der Container `app` wendet Migrationen (`alembic upgrade head`) beim Start selbst an.
+Die DB-Daten liegen im named volume `pgdata` und überleben `docker compose down`.
+
+### Variante B — hybrider Dev-Modus (Hot-Reload)
+
+Die DB läuft in Docker, Backend und Frontend lokal (Hot-Reload, Debugging in der IDE):
+
+```bash
+# Backend
+uv sync
+cp .env.example .env              # DATABASE_URL zeigt bereits auf localhost:5434
+docker compose up -d db           # nur Postgres (Port 5434 nach außen)
+uv run alembic upgrade head       # Migrationen vom Host aus
+uv run uvicorn app.main:app --reload
+# → http://localhost:8000/docs
+
+# Frontend (in einem separaten Terminal)
+cd frontend
+npm install
+npm run dev
+# → http://localhost:5173 (proxyt /api auf localhost:8000)
+```
+
+> SQL-Logs in der Konsole werden über die Variable `DB_ECHO=true` in `.env` aktiviert (standardmäßig deaktiviert).
+
+## API
+
+| Methode | Pfad | Auth | Beschreibung |
+|-------|------|:-----------:|----------|
+| `POST` | `/auth/register` | — | Registrierung |
+| `POST` | `/auth/login` | — | Login → JWT-Token |
+| `GET` | `/auth/me` | 🔒 | Daten des aktuellen Nutzers |
+| `POST` | `/links` | 🔒 | Kurzlink erstellen |
+| `GET` | `/links?limit=&offset=` | 🔒 | Seite der eigenen Links (Envelope `{items, total, limit, offset}`) |
+| `GET` | `/links/{code}` | — | Informationen zum Link |
+| `GET` | `/{code}` | — | Weiterleitung → Ziel-URL |
+
+Vollständige interaktive Dokumentation — unter `/docs` (Swagger UI).
+
+## Frontend
+
+SPA auf Deutsch: Landingpage, Registrierung/Login, `/dashboard` (Links erstellen,
+Liste mit Pagination, in die Zwischenablage kopieren), `/about` ("Über das
+Projekt" — Visitenkarte für Recruiter). JWT wird im `localStorage` gespeichert,
+Server-Zustand über TanStack Query. Mehr zu den Entscheidungen — [DECISIONS.md](DECISIONS.md).
+
+## Tests
+
+Backend:
+
+```bash
+docker compose -f docker-compose.test.yml up -d   # Test-DB (Port 5433, Daten im RAM)
+uv run pytest -v
+uv run pytest --cov=app --cov-report=term-missing
+uv run pytest tests/unit/ -v
+uv run pytest tests/integration/ -v
+```
+
+82 Tests, 92 % Testabdeckung. Isolation über SAVEPOINT + Rollback (echtes Postgres, keine DB-Mocks).
+
+Frontend:
+
+```bash
+cd frontend
+npm run test    # Vitest + React Testing Library
+npm run lint     # oxlint
+```
+
+## Docker
+
+- `Dockerfile` — Multi-Stage (Builder → Runtime), Non-Root-User, Caching der Dependency-Schicht.
+  Finales Image ~68 MB (komprimiert).
+- `frontend/Dockerfile` — Multi-Stage (Node → nginx): Vite-Build, statische Dateien werden von nginx ausgeliefert.
+- `docker-compose.yml` — app + frontend + Postgres, Verbindung über DNS-Namen, Healthcheck, persistentes Volume.
+- `docker-compose.prod.yml` — Produktions-Override: Images aus GHCR statt lokalem Build, Caddy als Reverse Proxy mit Auto-TLS.
+- `docker/entrypoint.sh` — Migrationen vor dem Start des Servers.
+- `docker-compose.test.yml` — separate Test-Datenbank (Daten im RAM, Port 5433).
+
+## CI/CD und Deployment
+
+- **CI** (`.github/workflows/ci.yml`, bei jedem PR): ruff (Lint+Format) und pytest für das Backend,
+  oxlint + Vitest + `tsc`/`vite build` für das Frontend — Gate vor dem Merge.
+- **CD** (`.github/workflows/deploy.yml`, bei Push nach `main`): Tests → Build beider Docker-Images
+  → Push nach GHCR → SSH-Deployment nach Hetzner (Pull der Images, `caddy reload`).
+
+Produktionsserver: Hetzner Cloud CX22, Caddy + automatisches TLS, tägliches DB-Backup.
+Ausführliche Server-Anleitung — [docs/deploy.md](docs/deploy.md).
+
+## Status
+
+Backend, Authentifizierung, Tests, Docker, Deployment, CI/CD und Frontend — fertig und live im Einsatz.
+Die Roadmap (Monitoring, Redis, Kubernetes, weitere Features) — in [CLAUDE.md](CLAUDE.md),
+zentrale Entscheidungen und deren Gründe — in [DECISIONS.md](DECISIONS.md).
+
+---
+
+> Русская версия (оригинал, для контекста разработки).
+
+# Link Shortener
+
 Сервис сокращения ссылок. Пет-проект для изучения FastAPI, React, Docker и Kubernetes.
 
 **Живой сервис:** https://s.faiuk.me (интерфейс на немецком)
