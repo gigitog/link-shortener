@@ -14,6 +14,7 @@ CORS — всё, что нужно для КАЖДОГО запроса, а не
 import json
 import logging
 import time
+import uuid
 from collections import defaultdict
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -21,26 +22,52 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.logging_config import request_id_var
+
 logger = logging.getLogger("link_shortener")
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """Логирует каждый запрос: метод, путь, статус и время ответа."""
+    """Логирует каждый запрос: метод, путь, статус и время ответа.
+
+    Заодно генерирует request_id — уникальный идентификатор запроса,
+    который кладётся в contextvar (его подхватит JSONFormatter для ЛЮБОГО
+    лога внутри этого запроса) и возвращается клиенту в заголовке
+    X-Request-ID — удобно, когда пользователь репортит баг: он присылает
+    этот id, и по нему находится вся цепочка логов конкретного запроса.
+    """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        start = time.perf_counter()
-        response = await call_next(request)
-        duration = time.perf_counter() - start
+        request_id = str(uuid.uuid4())
+        # set() возвращает Token — по нему reset() вернёт contextvar в состояние
+        # ДО этого запроса. Без reset в finally значение «протекло» бы в контекст,
+        # из которого этот дispatch был вызван (не критично для реального сервера,
+        # где каждый запрос — новая asyncio Task, но важно для тестов, где клиент
+        # шлёт много запросов в рамках одного теста/задачи).
+        token = request_id_var.set(request_id)
 
-        logger.info(
-            "%s %s → %s (%.3fs)",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration,
-        )
+        try:
+            start = time.perf_counter()
+            response = await call_next(request)
+            duration_ms = (time.perf_counter() - start) * 1000
 
-        return response
+            logger.info(
+                "%s %s -> %s",
+                request.method,
+                request.url.path,
+                response.status_code,
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": response.status_code,
+                    "duration_ms": round(duration_ms, 2),
+                },
+            )
+
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            request_id_var.reset(token)
 
 
 class RateLimitMiddleware:
