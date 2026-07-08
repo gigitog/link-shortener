@@ -80,8 +80,6 @@ jobs:
       - run: uv run pytest --cov=app
 
   # Фронтенд — отдельный job (свой раннер, не зависит от Python-окружения).
-  # Пока только линт + типы + сборка: unit-тестов на фронте на этом этапе
-  # нет, npm run build (tsc -b && vite build) уже ловит большинство ошибок.
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -104,4 +102,5 @@ jobs:
       # тот же принцип, что uv sync --frozen для бэкенда.
       - run: npm ci
       - run: npm run lint
+      - run: npm run test   # vitest run — Vitest/jsdom, без реального браузера
       - run: npm run build

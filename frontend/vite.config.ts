@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -5,6 +6,13 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Тесты идут через Vitest поверх этого же конфига (тот же react-плагин,
+  // тот же resolve) — не нужен отдельный jest.config.
+  test: {
+    // jsdom эмулирует DOM в Node — без него React Testing Library негде рендерить.
+    environment: 'jsdom',
+    setupFiles: ['./src/setupTests.ts'],
+  },
   server: {
     proxy: {
       // В деве фронт (порт 5173) и бэкенд (порт 8000) — разные origin,
