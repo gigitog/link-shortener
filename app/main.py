@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
-from app.routers import auth, links
+from app.routers import auth, health, links
 
 # Настройка логирования — без этого logger.info() не выводит ничего,
 # потому что по умолчанию уровень WARNING (т.е. info-сообщения игнорируются).
@@ -43,4 +43,5 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(health.router)
 app.include_router(links.router)

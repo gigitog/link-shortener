@@ -68,8 +68,13 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - app
-      - frontend
+      app:
+        # Ждём именно healthy (см. healthcheck в базовом docker-compose.yml),
+        # а не просто «контейнер запущен» — иначе Caddy начнёт пускать трафик
+        # раньше, чем app реально готово отвечать (например, ещё идут миграции).
+        condition: service_healthy
+      frontend:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
