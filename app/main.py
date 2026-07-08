@@ -1,17 +1,15 @@
 """Точка входа FastAPI-приложения."""
 
-import logging
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.logging_config import setup_logging
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
 from app.routers import auth, health, links
 
-# Настройка логирования — без этого logger.info() не выводит ничего,
-# потому что по умолчанию уровень WARNING (т.е. info-сообщения игнорируются).
-logging.basicConfig(level=logging.INFO)
+# JSON-логи вместо logging.basicConfig — см. app/logging_config.py.
+setup_logging()
 
 # Таблицы теперь создаются/изменяются через Alembic-миграции,
 # а не через create_all. Команда: uv run alembic upgrade head
