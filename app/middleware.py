@@ -23,17 +23,12 @@ from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.logging_config import request_id_var
-from app.metrics import REQUEST_DURATION_SECONDS, REQUESTS_TOTAL, route_label
 
 logger = logging.getLogger("link_shortener")
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """Логирует каждый запрос и параллельно обновляет метрики Prometheus.
-
-    Логирование и метрики объединены в одном middleware, потому что обоим
-    нужны одни и те же данные (метод, статус, время ответа) — вместо того
-    чтобы мерить время дважды в двух отдельных middleware, считаем один раз.
+    """Логирует каждый запрос: метод, путь, статус и время ответа.
 
     Заодно генерирует request_id — уникальный идентификатор запроса,
     который кладётся в contextvar (его подхватит JSONFormatter для ЛЮБОГО
@@ -41,10 +36,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     X-Request-ID — удобно, когда пользователь репортит баг: он присылает
     этот id, и по нему находится вся цепочка логов конкретного запроса.
 
-    Важно: этот middleware стоит ПОСЛЕ RateLimitMiddleware в стеке (см.
-    main.py), поэтому запросы, отклонённые лимитером (429), сюда не попадают
-    и не логируются/не метрятся здесь — тот же пробел, что уже был у логов
-    до этого PR, метрики его просто наследуют.
+    Метрики Prometheus здесь больше не считаются: это делает отдельное
+    middleware от prometheus-fastapi-instrumentator (см. main.py) — раньше
+    (PR3) мы вручную вели Counter/Histogram прямо тут, но библиотека решает
+    ту же задачу как отдельный, не связанный с логированием слой.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -60,16 +55,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             start = time.perf_counter()
             response = await call_next(request)
             duration = time.perf_counter() - start
-
-            # path — шаблон роута (для метрик, ограниченная кардинальность),
-            # request.url.path — реальный путь (для лога — тут ограничение
-            # на число уникальных значений не действует, лог не хранит ряды).
-            path = route_label(request)
-            status = str(response.status_code)
-            REQUESTS_TOTAL.labels(method=request.method, path=path, status=status).inc()
-            REQUEST_DURATION_SECONDS.labels(
-                method=request.method, path=path, status=status
-            ).observe(duration)
 
             logger.info(
                 "%s %s -> %s",
