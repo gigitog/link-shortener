@@ -70,9 +70,7 @@ class TestMetricsEndpoint:
         text = (await client.get("/metrics")).text
 
         assert (
-            _sample_value(
-                text, "http_requests_total", method="GET", path="unmatched", status="404"
-            )
+            _sample_value(text, "http_requests_total", method="GET", path="unmatched", status="404")
             is not None
         )
         # Сырой мусорный путь НЕ должен появиться как отдельная метка
