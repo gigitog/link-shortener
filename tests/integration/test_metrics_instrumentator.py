@@ -1,5 +1,9 @@
-"""Интеграционные тесты /metrics: счётчик запросов, гистограмма задержки,
-защита от взрыва кардинальности на несуществующих путях.
+"""Интеграционные тесты /metrics (prometheus-fastapi-instrumentator).
+
+Библиотека занимается тем же, что мы раньше (PR3) писали руками:
+- шаблон роута вместо сырого пути в метке handler;
+- группировка нераспознанных путей под handler="none";
+- группировка статусов в 2xx/4xx/5xx.
 """
 
 from httpx import AsyncClient
@@ -7,11 +11,6 @@ from prometheus_client.parser import text_string_to_metric_families
 
 
 def _sample_value(text: str, metric_name: str, **labels) -> float | None:
-    """Находит значение конкретного сэмпла в prometheus-текстовом формате.
-
-    Разбираем через text_string_to_metric_families — так же, как это делает
-    настоящий Prometheus при scrape, а не руками ищем подстроки в тексте.
-    """
     for family in text_string_to_metric_families(text):
         for sample in family.samples:
             if sample.name == metric_name and all(
@@ -31,7 +30,7 @@ class TestMetricsEndpoint:
         before_text = (await client.get("/metrics")).text
         before = (
             _sample_value(
-                before_text, "http_requests_total", method="GET", path="/health", status="200"
+                before_text, "http_requests_total", handler="/health", method="GET", status="2xx"
             )
             or 0
         )
@@ -40,7 +39,7 @@ class TestMetricsEndpoint:
 
         after_text = (await client.get("/metrics")).text
         after = _sample_value(
-            after_text, "http_requests_total", method="GET", path="/health", status="200"
+            after_text, "http_requests_total", handler="/health", method="GET", status="2xx"
         )
 
         assert after == before + 1
@@ -49,20 +48,19 @@ class TestMetricsEndpoint:
         await client.get("/health")
         text = (await client.get("/metrics")).text
 
+        # У default() низкий по числу бакетов http_request_duration_seconds
+        # (только method + handler, без status — см. metrics.py библиотеки).
         count = _sample_value(
             text,
             "http_request_duration_seconds_count",
+            handler="/health",
             method="GET",
-            path="/health",
-            status="200",
         )
         assert count is not None and count >= 1
 
-    async def test_unmatched_route_does_not_leak_raw_path(self, client: AsyncClient):
-        """Путь, не подходящий ни под один маршрут (несколько сегментов,
-        которые не совпадают ни с /{short_code}, ни с /links/*, ни с /auth/*),
-        должен лечь под метку "unmatched", а не под свой собственный сырой путь.
-        """
+    async def test_unmatched_route_grouped_under_none(self, client: AsyncClient):
+        """Путь без совпавшего маршрута — под handler="none", а не под свой
+        сырой путь (should_group_untemplated=True по умолчанию)."""
         garbage_path = "/a/b/c/d/does-not-exist"
         resp = await client.get(garbage_path)
         assert resp.status_code == 404
@@ -71,9 +69,8 @@ class TestMetricsEndpoint:
 
         assert (
             _sample_value(
-                text, "http_requests_total", method="GET", path="unmatched", status="404"
+                text, "http_requests_total", handler="none", method="GET", status="4xx"
             )
             is not None
         )
-        # Сырой мусорный путь НЕ должен появиться как отдельная метка
         assert garbage_path not in text
