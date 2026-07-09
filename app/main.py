@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.logging_config import setup_logging
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
-from app.routers import auth, health, links
+from app.routers import auth, health, links, metrics
 
 # JSON-логи вместо logging.basicConfig — см. app/logging_config.py.
 setup_logging()
@@ -42,4 +42,5 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(health.router)
+app.include_router(metrics.router)
 app.include_router(links.router)

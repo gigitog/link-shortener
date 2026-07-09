@@ -23,18 +23,28 @@ from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.logging_config import request_id_var
+from app.metrics import REQUEST_DURATION_SECONDS, REQUESTS_TOTAL, route_label
 
 logger = logging.getLogger("link_shortener")
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """Логирует каждый запрос: метод, путь, статус и время ответа.
+    """Логирует каждый запрос и параллельно обновляет метрики Prometheus.
+
+    Логирование и метрики объединены в одном middleware, потому что обоим
+    нужны одни и те же данные (метод, статус, время ответа) — вместо того
+    чтобы мерить время дважды в двух отдельных middleware, считаем один раз.
 
     Заодно генерирует request_id — уникальный идентификатор запроса,
     который кладётся в contextvar (его подхватит JSONFormatter для ЛЮБОГО
     лога внутри этого запроса) и возвращается клиенту в заголовке
     X-Request-ID — удобно, когда пользователь репортит баг: он присылает
     этот id, и по нему находится вся цепочка логов конкретного запроса.
+
+    Важно: этот middleware стоит ПОСЛЕ RateLimitMiddleware в стеке (см.
+    main.py), поэтому запросы, отклонённые лимитером (429), сюда не попадают
+    и не логируются/не метрятся здесь — тот же пробел, что уже был у логов
+    до этого PR, метрики его просто наследуют.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -49,7 +59,17 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         try:
             start = time.perf_counter()
             response = await call_next(request)
-            duration_ms = (time.perf_counter() - start) * 1000
+            duration = time.perf_counter() - start
+
+            # path — шаблон роута (для метрик, ограниченная кардинальность),
+            # request.url.path — реальный путь (для лога — тут ограничение
+            # на число уникальных значений не действует, лог не хранит ряды).
+            path = route_label(request)
+            status = str(response.status_code)
+            REQUESTS_TOTAL.labels(method=request.method, path=path, status=status).inc()
+            REQUEST_DURATION_SECONDS.labels(
+                method=request.method, path=path, status=status
+            ).observe(duration)
 
             logger.info(
                 "%s %s -> %s",
@@ -60,7 +80,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     "method": request.method,
                     "path": request.url.path,
                     "status_code": response.status_code,
-                    "duration_ms": round(duration_ms, 2),
+                    "duration_ms": round(duration * 1000, 2),
                 },
             )
 
