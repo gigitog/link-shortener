@@ -76,6 +76,22 @@
         }
       ],
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "type": "timeseries",
+      "title": "Rate 4xx по handler — где именно клиентские ошибки",
+      "description": "Разные handler = разный смысл 4xx: /{short_code} — переходы по несуществующим коротким ссылкам (протухли/удалили/перебор); конкретный роут (например /health) — запрос заблокирован rate-limit'ом до бизнес-логики; none — путь вообще не совпал ни с одним маршрутом (боты/сканеры/опечатки в URL).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=\"4xx\"}[5m])) by (handler)",
+          "legendFormat": "{{handler}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
     }
   ],
   "refresh": "30s",
@@ -87,5 +103,5 @@
   "timezone": "browser",
   "title": "Link Shortener — RED",
   "uid": "link-shortener-red",
-  "version": 1
+  "version": 2
 }
