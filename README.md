@@ -28,6 +28,7 @@ Infrastruktur:
 
 - Docker + Docker Compose (Backend, Frontend, Postgres — 3 Images)
 - Caddy — Reverse Proxy, automatisches TLS, Routing über eine Domain
+- Prometheus + Grafana — Metriken (RED-Methode), Dashboard per SSH-Tunnel (optional, `docker-compose.observability.yml`)
 - GitHub Actions — CI (Lint+Tests bei PR) und CD (Image-Build, Auto-Deploy bei Push nach `main`)
 - Hetzner Cloud — Produktionsserver
 
@@ -152,6 +153,8 @@ npm run dev
 | `GET` | `/links?limit=&offset=` | 🔒 | Seite der eigenen Links (Envelope `{items, total, limit, offset}`) |
 | `GET` | `/links/{code}` | — | Informationen zum Link |
 | `GET` | `/{code}` | — | Weiterleitung → Ziel-URL |
+| `GET` | `/health` | — | Liveness-Check |
+| `GET` | `/health/ready` | — | Readiness-Check (prüft die DB) |
 
 Vollständige interaktive Dokumentation — unter `/docs` (Swagger UI).
 
@@ -174,7 +177,7 @@ uv run pytest tests/unit/ -v
 uv run pytest tests/integration/ -v
 ```
 
-82 Tests, 92 % Testabdeckung. Isolation über SAVEPOINT + Rollback (echtes Postgres, keine DB-Mocks).
+98 Tests, 93 % Testabdeckung. Isolation über SAVEPOINT + Rollback (echtes Postgres, keine DB-Mocks).
 
 Frontend:
 
@@ -191,6 +194,7 @@ npm run lint     # oxlint
 - `frontend/Dockerfile` — Multi-Stage (Node → nginx): Vite-Build, statische Dateien werden von nginx ausgeliefert.
 - `docker-compose.yml` — app + frontend + Postgres, Verbindung über DNS-Namen, Healthcheck, persistentes Volume.
 - `docker-compose.prod.yml` — Produktions-Override: Images aus GHCR statt lokalem Build, Caddy als Reverse Proxy mit Auto-TLS.
+- `docker-compose.observability.yml` — optionaler Override: Prometheus + Grafana (Metriken, RED-Dashboard).
 - `docker/entrypoint.sh` — Migrationen vor dem Start des Servers.
 - `docker-compose.test.yml` — separate Test-Datenbank (Daten im RAM, Port 5433).
 
@@ -204,10 +208,31 @@ npm run lint     # oxlint
 Produktionsserver: Hetzner Cloud CX22, Caddy + automatisches TLS, tägliches DB-Backup.
 Ausführliche Server-Anleitung — [docs/deploy.md](docs/deploy.md).
 
+## Monitoring
+
+- `GET /health` (Liveness, ohne DB-Zugriff) und `GET /health/ready` (Readiness, prüft die DB) —
+  für Healthchecks/Orchestrator-Probes.
+- Strukturierte JSON-Logs mit `request_id` (Korrelations-ID über die gesamte Request-Kette,
+  via `contextvars`).
+- Prometheus + Grafana (`docker-compose.observability.yml`, optional zuschaltbar): Metriken
+  nach dem RED-Verfahren (Rate/Errors/Duration), Dashboard as Code (Provisioning).
+
+```mermaid
+graph LR
+    App[app :8000<br/>/metrics] -->|pull, alle 15s| Prom[Prometheus]
+    Prom -->|PromQL| Graf[Grafana<br/>RED-Dashboard]
+    Graf -.->|SSH-Tunnel| Du[Du]
+```
+
+`/metrics` ist von außen nicht erreichbar (in Caddy blockiert) — Prometheus scraped direkt
+innerhalb des Docker-Netzwerks. Grafana ist ebenfalls nicht öffentlich, Zugriff nur per
+SSH-Tunnel (`ssh -L 3001:localhost:3001 ...`). Begründung der Alternativen (Basic Auth,
+öffentlicher Login, VPN) — [DECISIONS.md](DECISIONS.md).
+
 ## Status
 
-Backend, Authentifizierung, Tests, Docker, Deployment, CI/CD und Frontend — fertig und live im Einsatz.
-Die Roadmap (Monitoring, Redis, Kubernetes, weitere Features) — in [CLAUDE.md](CLAUDE.md),
+Backend, Authentifizierung, Tests, Docker, Deployment, CI/CD, Frontend und Monitoring —
+fertig und live im Einsatz. Die Roadmap (Redis, Kubernetes, weitere Features) — in [CLAUDE.md](CLAUDE.md),
 zentrale Entscheidungen und deren Gründe — in [DECISIONS.md](DECISIONS.md).
 
 ---
@@ -241,6 +266,7 @@ zentrale Entscheidungen und deren Gründe — in [DECISIONS.md](DECISIONS.md).
 
 - Docker + Docker Compose (backend, frontend, Postgres — 3 образа)
 - Caddy — reverse proxy, автоматический TLS, роутинг одним доменом
+- Prometheus + Grafana — метрики (RED-метод), дашборд по SSH-туннелю (опционально, `docker-compose.observability.yml`)
 - GitHub Actions — CI (линт+тесты на PR) и CD (сборка образов, автодеплой на push в `main`)
 - Hetzner Cloud — прод-сервер
 
@@ -365,6 +391,8 @@ npm run dev
 | `GET` | `/links?limit=&offset=` | 🔒 | Страница списка своих ссылок (конверт `{items, total, limit, offset}`) |
 | `GET` | `/links/{code}` | — | Информация о ссылке |
 | `GET` | `/{code}` | — | Редирект → оригинальный URL |
+| `GET` | `/health` | — | Liveness-проверка |
+| `GET` | `/health/ready` | — | Readiness-проверка (проверяет БД) |
 
 Полная интерактивная документация — на `/docs` (Swagger UI).
 
@@ -387,7 +415,7 @@ uv run pytest tests/unit/ -v
 uv run pytest tests/integration/ -v
 ```
 
-82 теста, покрытие 92%. Изоляция через SAVEPOINT + rollback (реальный Postgres, без моков БД).
+98 тестов, покрытие 93%. Изоляция через SAVEPOINT + rollback (реальный Postgres, без моков БД).
 
 Фронтенд:
 
@@ -404,6 +432,7 @@ npm run lint     # oxlint
 - `frontend/Dockerfile` — multi-stage (node → nginx): сборка Vite, статика раздаётся nginx.
 - `docker-compose.yml` — app + frontend + Postgres, связь по DNS-именам, healthcheck, персистентный volume.
 - `docker-compose.prod.yml` — прод-оверрайд: образы из GHCR вместо локальной сборки, Caddy как reverse proxy с авто-TLS.
+- `docker-compose.observability.yml` — опциональный оверрайд: Prometheus + Grafana (метрики, RED-дашборд).
 - `docker/entrypoint.sh` — миграции перед запуском сервера.
 - `docker-compose.test.yml` — отдельная тестовая БД (данные в RAM, порт 5433).
 
@@ -417,8 +446,29 @@ npm run lint     # oxlint
 Прод-сервер: Hetzner Cloud CX22, Caddy + автоматический TLS, ежедневный бэкап БД.
 Подробная шпаргалка по серверу — [docs/deploy.md](docs/deploy.md).
 
+## Мониторинг
+
+- `GET /health` (liveness, без обращения к БД) и `GET /health/ready` (readiness, проверяет БД) —
+  для healthcheck'ов/проб оркестратора.
+- Структурированные JSON-логи с `request_id` (сквозной id через `contextvars`, связывает всю
+  цепочку одного запроса).
+- Prometheus + Grafana (`docker-compose.observability.yml`, поднимается по желанию): метрики
+  по RED-методу (Rate/Errors/Duration), дашборд как код (provisioning).
+
+```mermaid
+graph LR
+    App[app :8000<br/>/metrics] -->|pull, раз в 15с| Prom[Prometheus]
+    Prom -->|PromQL| Graf[Grafana<br/>RED-дашборд]
+    Graf -.->|SSH-туннель| Ty[Ты]
+```
+
+`/metrics` снаружи недоступен (заблокирован в Caddy) — Prometheus ходит напрямую внутри
+docker-сети. Grafana тоже не публичная, доступ только по SSH-туннелю
+(`ssh -L 3001:localhost:3001 ...`). Обоснование альтернатив (Basic Auth, публичный логин,
+VPN) — в [DECISIONS.md](DECISIONS.md).
+
 ## Статус
 
-Бэкенд, авторизация, тесты, Docker, деплой, CI/CD и фронтенд — готовы и работают на проде.
-Дорожная карта (мониторинг, Redis, Kubernetes, дальнейшие фичи) — в [CLAUDE.md](CLAUDE.md),
+Бэкенд, авторизация, тесты, Docker, деплой, CI/CD, фронтенд и мониторинг — готовы и работают
+на проде. Дорожная карта (Redis, Kubernetes, дальнейшие фичи) — в [CLAUDE.md](CLAUDE.md),
 ключевые решения и их причины — в [DECISIONS.md](DECISIONS.md).
