@@ -1,0 +1,20 @@
+# Provisioning-конфиг Grafana: источники данных задаются файлом (as code),
+# а не руками через UI после каждого пересоздания контейнера — иначе при
+# каждом `docker compose up` пришлось бы заново тыкать мышкой в настройки.
+#
+# uid зафиксирован явно ("prometheus"), а не оставлен автогенерируемым —
+# чтобы дашборд (docker/grafana/dashboards/*.json) мог сослаться на этот
+# источник данных по стабильному идентификатору, а не гадать, какой UID
+# Grafana сгенерирует на этот раз.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    # "prometheus" — имя сервиса в docker-compose; порт 9090 — внутренний,
+    # тоже не публикуется наружу (см. docker-compose.observability.yml).
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
