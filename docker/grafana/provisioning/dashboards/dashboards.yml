@@ -1,0 +1,12 @@
+# Говорит Grafana: "смотри в эту папку внутри контейнера и сама
+# подгружай оттуда все *.json дашборды при старте". Без этого дашборд
+# (docker/grafana/dashboards/link-shortener.json) нужно было бы руками
+# импортировать через UI после каждого пересоздания контейнера.
+apiVersion: 1
+
+providers:
+  - name: link-shortener
+    folder: ""
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards/link-shortener

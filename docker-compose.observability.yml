@@ -1,0 +1,71 @@
+# docker-compose.observability.yml — Prometheus + Grafana, отдельным override-файлом
+# (тот же паттерн, что docker-compose.prod.yml): подключается ДОПОЛНИТЕЛЬНО к базовому
+# docker-compose.yml, а не вместо него.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+#
+# На проде — вместе с prod-файлом:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.observability.yml up -d
+#
+# Вынесено отдельным файлом, а не в основной docker-compose.yml, чтобы мониторинг
+# можно было поднимать по желанию (лишние 2 контейнера не нужны для каждого
+# локального запуска), не трогая основной стек.
+#
+# ВАЖНО про порты 127.0.0.1:*: и Prometheus, и Grafana НЕ проксируются через Caddy
+# и НЕ должны быть доступны из интернета — только сама админка Grafana, и то не
+# каждому. Если написать просто "3000:3000", Docker слушает на ВСЕХ интерфейсах
+# хоста (0.0.0.0) — порт был бы доступен снаружи напрямую по IP сервера, в обход
+# Caddy и вообще всей нашей логики закрытых путей (см. /metrics в Caddyfile).
+# Префикс "127.0.0.1:" привязывает порт ТОЛЬКО к loopback-интерфейсу хоста —
+# попасть туда можно только с самого сервера. Доступ — через SSH-туннель:
+#   ssh -L 3001:localhost:3001 deploy@178.105.29.149
+# и дальше http://localhost:3001 в браузере на своей машине (подробности и
+# обоснование выбора — в DECISIONS.md).
+#
+# Grafana слушает на хостовом порту 3001, а не 3000 — 3000 уже занят
+# сервисом frontend (см. docker-compose.yml). Внутри контейнера порт
+# остаётся стандартным (3000), меняется только то, что видно снаружи.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Named volume — TSDB (данные метрик) переживает пересоздание контейнера.
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    environment:
+      # Дефолт "admin" — только чтобы стек поднялся из коробки локально
+      # (тот же подход, что у SECRET_KEY/POSTGRES_PASSWORD в базовом compose).
+      # На проде сменить в .env — угроза невысокая (порт и так не публикуется
+      # наружу), но менять дефолтный пароль — общая гигиена, не полагаемся
+      # только на сетевую изоляцию.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Не даём регистрировать новых пользователей через UI — эта Grafana
+      # только для нас/админа, самостоятельная регистрация тут не нужна.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      # Provisioning as code: датасорс (Prometheus) и сами JSON-дашборды —
+      # одним томом (сами дашборды лежат ВНУТРИ дерева provisioning/, см.
+      # docker/grafana/provisioning/dashboards/link-shortener/). Отдельный
+      # volume поверх уже смонтированной сюда read-only папки не работает:
+      # Docker не может создать точку монтирования внутри read-only родителя.
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      # Собственные данные Grafana (пользователи, сессии) — отдельно от provisioning.
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

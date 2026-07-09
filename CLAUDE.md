@@ -170,9 +170,11 @@ frontend/src/
    Caddy роутит по пути на одном домене. Немецкий интерфейс, страница «Über das Projekt»,
    пометка pet-project + версия в футере. Реализован на 5 PR (пагинация+CORS → каркас →
    dashboard → лендинг/About → cutover); подробности — `DECISIONS.md`. ✅
-9. **Мониторинг / observability** ← *сейчас здесь* — Prometheus (метрики) + Grafana (дашборды),
-   эндпоинты `/health` (liveness) и `/metrics`, структурированные JSON-логи.
-10. **Кэш (Redis)** — cache-aside для горячего пути `GET /{code}` (редирект без похода в БД);
+9. **Мониторинг / observability** — эндпоинты `/health` (liveness) и `/health/ready`
+   (readiness), структурированные JSON-логи + `request_id`, метрики Prometheus
+   (`prometheus-fastapi-instrumentator`) + Grafana в `docker-compose.observability.yml`
+   (дашборд по RED-методу, доступ по SSH-туннелю — не публичный). ✅
+10. **Кэш (Redis)** ← *сейчас здесь* — cache-aside для горячего пути `GET /{code}` (редирект без похода в БД);
     перенос состояния rate-limiter из памяти процесса в Redis (общий счётчик — готовит почву
     к нескольким репликам на этапе K8s).
 11. **Kubernetes** — перенос в k3s: манифесты, Ingress, Secrets, масштабирование.

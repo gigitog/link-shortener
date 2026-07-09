@@ -81,6 +81,28 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f app # л
 docker compose -f docker-compose.yml -f docker-compose.prod.yml logs caddy  # логи прокси/TLS
 ```
 
+## Мониторинг (Prometheus + Grafana)
+
+Отдельный override-файл, поднимается по желанию (не часть основного стека):
+
+```bash
+alias dcpo='docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.observability.yml'
+dcpo up -d
+```
+
+Оба сервиса слушают **только на loopback-интерфейсе сервера** (`127.0.0.1:9090`
+Prometheus, `127.0.0.1:3001` Grafana) — снаружи недоступны, даже в обход Caddy
+(и дополнительно прикрыты firewall Hetzner, который открывает лишь 22/80/443).
+Доступ — SSH-туннель с локальной машины:
+
+```bash
+ssh -L 3001:localhost:3001 deploy@178.105.29.149
+```
+
+и дальше открыть `http://localhost:3001` в браузере на своей машине (логин/пароль
+из `.env` — `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`, дефолт `admin`/`admin`,
+сменить желательно даже при сетевой изоляции). Обоснование выбора — в `DECISIONS.md`.
+
 ## Перезапуск / остановка
 
 ```bash
@@ -94,6 +116,8 @@ sudo reboot  # стек поднимется сам (restart: unless-stopped)
 `~/link-shortener/.env` — существует только на сервере, в git не попадает.
 Переменные: POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB, SECRET_KEY,
 DOMAIN, BASE_URL. Без любой из них стек не поднимется (`${VAR:?}` в compose).
+GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD — опциональны (есть дефолт), нужны
+только при поднятом `docker-compose.observability.yml`.
 
 ## Бэкапы БД
 
