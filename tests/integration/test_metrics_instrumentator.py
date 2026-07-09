@@ -1,0 +1,74 @@
+"""Интеграционные тесты /metrics (prometheus-fastapi-instrumentator).
+
+Библиотека занимается тем же, что мы раньше (PR3) писали руками:
+- шаблон роута вместо сырого пути в метке handler;
+- группировка нераспознанных путей под handler="none";
+- группировка статусов в 2xx/4xx/5xx.
+"""
+
+from httpx import AsyncClient
+from prometheus_client.parser import text_string_to_metric_families
+
+
+def _sample_value(text: str, metric_name: str, **labels) -> float | None:
+    for family in text_string_to_metric_families(text):
+        for sample in family.samples:
+            if sample.name == metric_name and all(
+                sample.labels.get(k) == v for k, v in labels.items()
+            ):
+                return sample.value
+    return None
+
+
+class TestMetricsEndpoint:
+    async def test_content_type(self, client: AsyncClient):
+        resp = await client.get("/metrics")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/plain")
+
+    async def test_counter_increments_for_known_route(self, client: AsyncClient):
+        before_text = (await client.get("/metrics")).text
+        before = (
+            _sample_value(
+                before_text, "http_requests_total", handler="/health", method="GET", status="2xx"
+            )
+            or 0
+        )
+
+        await client.get("/health")
+
+        after_text = (await client.get("/metrics")).text
+        after = _sample_value(
+            after_text, "http_requests_total", handler="/health", method="GET", status="2xx"
+        )
+
+        assert after == before + 1
+
+    async def test_duration_histogram_recorded(self, client: AsyncClient):
+        await client.get("/health")
+        text = (await client.get("/metrics")).text
+
+        # У default() низкий по числу бакетов http_request_duration_seconds
+        # (только method + handler, без status — см. metrics.py библиотеки).
+        count = _sample_value(
+            text,
+            "http_request_duration_seconds_count",
+            handler="/health",
+            method="GET",
+        )
+        assert count is not None and count >= 1
+
+    async def test_unmatched_route_grouped_under_none(self, client: AsyncClient):
+        """Путь без совпавшего маршрута — под handler="none", а не под свой
+        сырой путь (should_group_untemplated=True по умолчанию)."""
+        garbage_path = "/a/b/c/d/does-not-exist"
+        resp = await client.get(garbage_path)
+        assert resp.status_code == 404
+
+        text = (await client.get("/metrics")).text
+
+        assert (
+            _sample_value(text, "http_requests_total", handler="none", method="GET", status="4xx")
+            is not None
+        )
+        assert garbage_path not in text

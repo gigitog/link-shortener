@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
 from app.logging_config import setup_logging
@@ -39,6 +40,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Метрики Prometheus. instrument() добавляет ещё один middleware через
+# add_middleware — добавлен последним, значит (см. правило выше) выполняется
+# ПЕРВЫМ, раньше даже CORS и rate-limit: попадают в статистику вообще все
+# запросы, включая те, что потом отклонит лимитер (429).
+# expose() регистрирует сам GET /metrics — до include_router(links.router),
+# чтобы этот путь не перехватил catch-all "/{short_code}".
+#
+# Библиотека сама решает те же задачи, что мы делали руками в PR3:
+# - шаблон роута вместо сырого пути (иначе — взрыв кардинальности);
+# - для путей без совпавшего роута — общая метка handler="none"
+#   (should_group_untemplated=True по умолчанию);
+# - статусы группируются в 2xx/4xx/5xx (should_group_status_codes=True) —
+#   иначе на каждый уникальный код был бы свой ряд.
+Instrumentator().instrument(app).expose(app)
 
 app.include_router(auth.router)
 app.include_router(health.router)

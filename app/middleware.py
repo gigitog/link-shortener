@@ -35,6 +35,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     лога внутри этого запроса) и возвращается клиенту в заголовке
     X-Request-ID — удобно, когда пользователь репортит баг: он присылает
     этот id, и по нему находится вся цепочка логов конкретного запроса.
+
+    Метрики Prometheus здесь больше не считаются: это делает отдельное
+    middleware от prometheus-fastapi-instrumentator (см. main.py) — раньше
+    (PR3) мы вручную вели Counter/Histogram прямо тут, но библиотека решает
+    ту же задачу как отдельный, не связанный с логированием слой.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -49,7 +54,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         try:
             start = time.perf_counter()
             response = await call_next(request)
-            duration_ms = (time.perf_counter() - start) * 1000
+            duration = time.perf_counter() - start
 
             logger.info(
                 "%s %s -> %s",
@@ -60,7 +65,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     "method": request.method,
                     "path": request.url.path,
                     "status_code": response.status_code,
-                    "duration_ms": round(duration_ms, 2),
+                    "duration_ms": round(duration * 1000, 2),
                 },
             )
 
