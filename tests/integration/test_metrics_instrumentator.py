@@ -68,9 +68,7 @@ class TestMetricsEndpoint:
         text = (await client.get("/metrics")).text
 
         assert (
-            _sample_value(
-                text, "http_requests_total", handler="none", method="GET", status="4xx"
-            )
+            _sample_value(text, "http_requests_total", handler="none", method="GET", status="4xx")
             is not None
         )
         assert garbage_path not in text
